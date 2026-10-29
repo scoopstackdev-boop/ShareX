@@ -485,6 +485,13 @@ namespace ShareX.Setup
                 Console.WriteLine("Downloading: " + ExifToolDownloadURL);
                 WebHelpers.DownloadFileAsync(ExifToolDownloadURL, filePath).GetAwaiter().GetResult();
 
+                // The pinned ExifTool release is no longer published, ShareX runs without it
+                if (!File.Exists(filePath))
+                {
+                    Console.WriteLine("ExifTool download failed, skipped: " + ExifToolDownloadURL);
+                    return;
+                }
+
                 Console.WriteLine("Extracting: " + filePath);
                 ZipManager.Extract(filePath, OutputDir);
             }
