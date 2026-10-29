@@ -31,7 +31,20 @@ namespace ShareX
     {
         public UpdateChannel UpdateChannel { get; set; }
 
+        // Mod releases, versioned 20.2.0.N
+        public const string ModOwner = "scoopstackdev-boop";
+        public const string ModRepo = "ShareX";
+
         public override GitHubUpdateChecker CreateUpdateChecker()
+        {
+            return new GitHubUpdateChecker(ModOwner, ModRepo)
+            {
+                IsPortable = Program.Portable,
+                IgnoreRevision = false
+            };
+        }
+
+        private GitHubUpdateChecker CreateOfficialUpdateChecker()
         {
             if (UpdateChannel == UpdateChannel.Dev)
             {

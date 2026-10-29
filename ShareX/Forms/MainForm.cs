@@ -992,8 +992,7 @@ namespace ShareX
 
         private void ConfigureAutoUpdate()
         {
-            // Modded build: an official update would replace the modded files
-            Program.UpdateManager.AllowAutoUpdate = false;
+            Program.UpdateManager.AllowAutoUpdate = !SystemOptions.DisableUpdateCheck && Program.Settings.AutoCheckUpdate;
             Program.UpdateManager.UpdateChannel = Program.Settings.UpdateChannel;
             Program.UpdateManager.ConfigureAutoUpdate();
         }

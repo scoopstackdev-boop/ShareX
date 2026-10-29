@@ -1,5 +1,7 @@
 ## Changes
 
+* Update check uses this repository, the update button installs the latest mod release
+* Version numbers are now 20.2.0.N
 * Fixed screen recording failing with "Option thread_queue_size cannot be applied to input url"
 * Replay buffer menu added to the main window
 
@@ -14,6 +16,5 @@
   * Saved clips go through after capture tasks
 * Restart button and hotkey for screen recording
 * Mute button and hotkey for screen recording audio
-* Update check disabled
 
 Installs over an existing ShareX install. Settings are kept.
