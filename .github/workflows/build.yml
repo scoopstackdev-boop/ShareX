@@ -13,9 +13,6 @@ on:
 permissions:
   contents: write
 
-env:
-  RELEASE_TAG: v20.2.0-mod.2
-
 jobs:
   build:
     name: Build
@@ -29,6 +26,12 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 9.0.x
+
+      - name: Set RELEASE_TAG
+        run: |
+          $content = Get-Content "Directory.build.props" -Raw
+          $version = [regex]::Match($content, '<Version>([0-9.]+)</Version>').Groups[1].Value
+          echo "RELEASE_TAG=v$version" >> $env:GITHUB_ENV
 
       - name: Restore NuGet packages
         run: dotnet restore --runtime win-x64 ShareX.sln | Tee-Object -FilePath build.log -Append

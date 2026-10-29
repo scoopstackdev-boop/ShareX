@@ -17,7 +17,7 @@
 * Screen recording
   * Restart button and hotkey
   * Mute button and hotkey
-* Update check disabled, official updates would replace the mod
+* Update check points to this repository instead of the official one
 
 ## Hotkeys
 | Action | Default |
