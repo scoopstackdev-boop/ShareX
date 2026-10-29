@@ -370,6 +370,19 @@ namespace ShareX
                     path = ProcessTwoPassEncoding(path, metadata, taskSettings);
                 }
 
+                if (!abortRequested && File.Exists(path) && ReplayBufferManager.WatermarkRecordings &&
+                    Path.GetExtension(path).Equals(".mp4", StringComparison.OrdinalIgnoreCase))
+                {
+                    recordForm?.ChangeState(ScreenRecordState.Encoding);
+
+                    string watermarkError = ReplayBufferManager.ApplyWatermark(path);
+
+                    if (watermarkError != null)
+                    {
+                        TaskHelpers.ShowNotificationTip("Watermark not added: " + watermarkError, "ShareX", 5000);
+                    }
+                }
+
                 if (recordForm != null)
                 {
                     recordForm.InvokeSafe(() =>

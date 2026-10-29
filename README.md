@@ -15,6 +15,7 @@
   * Saved clips go through after capture tasks, so uploading works as normal
   * Encodes on the GPU (NVIDIA, AMD or Intel), frames stay on the GPU. Falls back to CPU encoding
   * Clips can upload to any ShareX destination or custom uploader, separate from screenshots
+  * Watermark (PNG, JPG or animated GIF) on clips and screen recordings, added when saving
 * Screen recording
   * Restart button and hotkey
   * Mute button and hotkey

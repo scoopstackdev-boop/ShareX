@@ -50,6 +50,15 @@ namespace ShareX
         Destination
     }
 
+    public enum WatermarkPosition
+    {
+        TopLeft,
+        TopRight,
+        BottomLeft,
+        BottomRight,
+        Center
+    }
+
     public enum ReplayBufferCaptureMode
     {
         Monitor,
@@ -111,6 +120,16 @@ namespace ShareX
         public FileDestination UploadDestination { get; set; } = FileDestination.Streamable;
         public int UploadCustomUploaderIndex { get; set; } = 0;
         public bool StartWithShareX { get; set; } = false;
+
+        public bool WatermarkEnabled { get; set; } = false;
+        public string WatermarkImage { get; set; } = "";
+        public WatermarkPosition WatermarkPosition { get; set; } = WatermarkPosition.BottomRight;
+
+        // Watermark width as a percentage of the video width
+        public int WatermarkSize { get; set; } = 15;
+        public int WatermarkOpacity { get; set; } = 85;
+        public int WatermarkMargin { get; set; } = 24;
+        public bool WatermarkRecordings { get; set; } = true;
         public bool ShowAdvanced { get; set; } = false;
         public bool DefaultHotkeysAdded { get; set; } = false;
     }

@@ -46,7 +46,11 @@ namespace ShareX
         private TextBox txtOutput, txtBuffer, txtFFmpeg;
         private Label lblArea, lblModeNote, lblQualityInfo, lblAudioNote, lblCustomNote;
         private Control[] monitorRow, appRow, areaRow, destinationRow, customUploaderRow;
-        private ComboBox cbEncoder, cbUpload, cbDestination, cbCustomUploader;
+        private ComboBox cbEncoder, cbUpload, cbDestination, cbCustomUploader, cbWatermarkPosition;
+        private CheckBox cbWatermark, cbWatermarkRecordings;
+        private TextBox txtWatermarkImage;
+        private NumericUpDown nudWatermarkSize, nudWatermarkOpacity;
+        private Control[] watermarkControls;
         private readonly FileDestination[] destinations = (FileDestination[])Enum.GetValues(typeof(FileDestination));
 
         private List<KeyValuePair<string, string>> openApps = new List<KeyValuePair<string, string>>();
@@ -61,8 +65,7 @@ namespace ShareX
             MaximizeBox = false;
             MinimizeBox = false;
             StartPosition = FormStartPosition.CenterScreen;
-            AutoSize = true;
-            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            AutoScroll = true;
             Padding = new Padding(12);
             ShowInTaskbar = true;
 
@@ -82,9 +85,11 @@ namespace ShareX
                 WrapContents = false,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                Dock = DockStyle.Fill
+                Location = new Point(Padding.Left, Padding.Top)
             };
             Controls.Add(root);
+            // Fits the window to the content, capped at the screen height, the form scrolls past that
+            root.SizeChanged += (s, e) => FitToContent(root);
 
             basic = NewTable();
             advanced = NewTable();
@@ -158,6 +163,26 @@ namespace ShareX
             cbAfterCapture = AddCheck(basic, "Run after capture tasks");
             cbStartWithShareX = AddCheck(basic, "Start replay buffer on startup");
 
+            // Watermark
+            AddHeader(basic, "Watermark");
+            cbWatermark = AddCheck(basic, "Add watermark to clips");
+            cbWatermark.CheckedChanged += (s, e) => UpdateWatermarkVisibility();
+
+            txtWatermarkImage = new TextBox() { Width = 300, PlaceholderText = "PNG, JPG or GIF" };
+            Button btnWatermarkImage = new Button() { Text = "...", Width = 32 };
+            btnWatermarkImage.Click += (s, e) => FileHelpers.BrowseFile(txtWatermarkImage, "", false, "Images (*.png;*.jpg;*.jpeg;*.gif)|*.png;*.jpg;*.jpeg;*.gif");
+            Control[] imageRow = AddRow(basic, "Image", txtWatermarkImage, btnWatermarkImage);
+
+            cbWatermarkPosition = AddCombo(basic, "Position", new[] { "Top left", "Top right", "Bottom left", "Bottom right", "Center" }, out Control[] positionRow);
+            nudWatermarkSize = new NumericUpDown() { Minimum = 1, Maximum = 100, Width = 100, TextAlign = HorizontalAlignment.Center };
+            Control[] sizeRow = AddRow(basic, "Size (% of width)", nudWatermarkSize);
+            nudWatermarkOpacity = new NumericUpDown() { Minimum = 5, Maximum = 100, Increment = 5, Width = 100, TextAlign = HorizontalAlignment.Center };
+            Control[] opacityRow = AddRow(basic, "Opacity (%)", nudWatermarkOpacity);
+            cbWatermarkRecordings = AddCheck(basic, "Also add to screen recordings");
+            Label lblWatermarkNote = AddNote(basic, "Applied when saving. Long clips take a few seconds longer.");
+
+            watermarkControls = imageRow.Concat(positionRow).Concat(sizeRow).Concat(opacityRow).Concat(new Control[] { cbWatermarkRecordings, lblWatermarkNote }).ToArray();
+
             Button btnHotkeys = new Button() { Text = "Hotkey settings...", AutoSize = true };
             btnHotkeys.Click += (s, e) => Program.MainForm?.OpenHotkeySettings();
             AddRow(basic, "Hotkeys", btnHotkeys, new Label() { Text = "", AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(6, 6, 3, 3) });
@@ -209,6 +234,15 @@ namespace ShareX
 
             AcceptButton = btnOK;
             CancelButton = btnCancel;
+        }
+
+        private void FitToContent(Control root)
+        {
+            Rectangle workingArea = Screen.FromControl(this).WorkingArea;
+            Size preferred = root.PreferredSize;
+            int width = preferred.Width + Padding.Horizontal + SystemInformation.VerticalScrollBarWidth;
+            int height = Math.Min(preferred.Height + Padding.Vertical, workingArea.Height - 80);
+            ClientSize = new Size(width, height);
         }
 
         private static TableLayoutPanel NewTable()
@@ -324,6 +358,12 @@ namespace ShareX
             nudBitrate.Value = Clamp(settings.BitrateKbps, nudBitrate);
             cbPreset.SelectedIndex = Math.Max(1, Math.Min(7, settings.Preset)) - 1;
             cbEncoder.SelectedIndex = (int)settings.Encoder;
+            cbWatermark.Checked = settings.WatermarkEnabled;
+            txtWatermarkImage.Text = settings.WatermarkImage;
+            cbWatermarkPosition.SelectedIndex = (int)settings.WatermarkPosition;
+            nudWatermarkSize.Value = Clamp(settings.WatermarkSize, nudWatermarkSize);
+            nudWatermarkOpacity.Value = Clamp(settings.WatermarkOpacity, nudWatermarkOpacity);
+            cbWatermarkRecordings.Checked = settings.WatermarkRecordings;
             cbUpload.SelectedIndex = (int)settings.Upload;
             cbDestination.SelectedIndex = Math.Max(0, Array.IndexOf(destinations, settings.UploadDestination));
             LoadCustomUploaders();
@@ -362,6 +402,12 @@ namespace ShareX
             s.BitrateKbps = (int)nudBitrate.Value;
             s.Preset = cbPreset.SelectedIndex + 1;
             s.Encoder = (ReplayBufferEncoder)Math.Max(0, cbEncoder.SelectedIndex);
+            s.WatermarkEnabled = cbWatermark.Checked;
+            s.WatermarkImage = txtWatermarkImage.Text.Trim();
+            s.WatermarkPosition = (WatermarkPosition)Math.Max(0, cbWatermarkPosition.SelectedIndex);
+            s.WatermarkSize = (int)nudWatermarkSize.Value;
+            s.WatermarkOpacity = (int)nudWatermarkOpacity.Value;
+            s.WatermarkRecordings = cbWatermarkRecordings.Checked;
             s.Upload = (ReplayBufferUpload)Math.Max(0, cbUpload.SelectedIndex);
             s.UploadDestination = destinations[Math.Max(0, cbDestination.SelectedIndex)];
             s.UploadCustomUploaderIndex = Math.Max(0, cbCustomUploader.SelectedIndex);
@@ -537,6 +583,13 @@ namespace ShareX
             cbCustomUploader.SelectedIndex = Math.Min(Math.Max(0, settings.UploadCustomUploaderIndex), cbCustomUploader.Items.Count - 1);
         }
 
+        private void UpdateWatermarkVisibility()
+        {
+            if (watermarkControls == null || cbWatermark == null) return;
+
+            SetVisible(watermarkControls, cbWatermark.Checked);
+        }
+
         private void UpdateUploadVisibility()
         {
             if (cbUpload == null || cbDestination == null || destinationRow == null || customUploaderRow == null) return;
@@ -556,6 +609,7 @@ namespace ShareX
             SetVisible(appRow, mode == ReplayBufferCaptureMode.App);
             SetVisible(areaRow, mode == ReplayBufferCaptureMode.Area);
             UpdateUploadVisibility();
+            UpdateWatermarkVisibility();
 
             switch (mode)
             {

@@ -348,6 +348,7 @@ namespace ShareX
             TaskMetadata metadata = new TaskMetadata();
             string outputPath = null;
             string error = null;
+            string watermarkError = null;
             string ffmpegPath = GetFFmpegPath(s);
             string outputFolder = string.IsNullOrWhiteSpace(s.OutputFolder) ? TaskHelpers.GetScreenshotsFolder(taskSettings, metadata) : FileHelpers.GetAbsolutePath(s.OutputFolder);
 
@@ -406,12 +407,23 @@ namespace ShareX
 
                     Interlocked.Decrement(ref savesInProgress);
                 }
+
+                // After the segments are released, so the buffer keeps pruning during the re-encode
+                if (outputPath != null && s.WatermarkEnabled)
+                {
+                    watermarkError = ApplyWatermark(outputPath);
+                }
             }).ContinueInCurrentContext(() =>
             {
                 if (outputPath == null)
                 {
                     TaskHelpers.ShowNotificationTip("Replay save failed: " + error, "ShareX - Replay buffer", 5000);
                     return;
+                }
+
+                if (watermarkError != null)
+                {
+                    TaskHelpers.ShowNotificationTip("Watermark not added: " + watermarkError, "ShareX - Replay buffer", 5000);
                 }
 
                 TaskHelpers.PlayNotificationSoundAsync(NotificationSound.ActionCompleted, taskSettings);
@@ -575,6 +587,157 @@ namespace ShareX
             args.Append($"-f segment -segment_time {SegmentSeconds} -segment_format mpegts -reset_timestamps 0 \"{pattern}\"");
 
             return args.ToString();
+        }
+
+        public static bool WatermarkRecordings
+        {
+            get
+            {
+                ReplayBufferSettings s = Settings;
+                return s.WatermarkEnabled && s.WatermarkRecordings;
+            }
+        }
+
+        // Re-encodes the video with the watermark on top and replaces the file. Returns null on success or when there is no watermark.
+        public static string ApplyWatermark(string videoPath)
+        {
+            ReplayBufferSettings s = Settings;
+
+            if (!s.WatermarkEnabled || string.IsNullOrWhiteSpace(s.WatermarkImage))
+            {
+                return null;
+            }
+
+            string image = FileHelpers.GetAbsolutePath(s.WatermarkImage);
+
+            if (!File.Exists(image))
+            {
+                return "image not found: " + image;
+            }
+
+            string ffmpegPath = GetFFmpegPath(s);
+
+            if (!File.Exists(ffmpegPath))
+            {
+                return "ffmpeg.exe not found: " + ffmpegPath;
+            }
+
+            int width = 1920;
+            int bitrate = 12000;
+
+            try
+            {
+                using (ShareX.MediaLib.FFmpegCLIManager ffmpeg = new ShareX.MediaLib.FFmpegCLIManager(ffmpegPath))
+                {
+                    ShareX.MediaLib.VideoInfo info = ffmpeg.GetVideoInfo(videoPath);
+
+                    if (info != null)
+                    {
+                        if (info.VideoResolution.Width > 0) width = info.VideoResolution.Width;
+                        if (info.Bitrate > 0) bitrate = Math.Max(2000, info.Bitrate);
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                DebugHelper.WriteException(e);
+            }
+
+            CultureInfo ci = CultureInfo.InvariantCulture;
+            int size = Math.Max(1, Math.Min(100, s.WatermarkSize));
+            int watermarkWidth = Math.Max(16, (int)(width * size / 100.0) / 2 * 2);
+            string opacity = (Math.Max(5, Math.Min(100, s.WatermarkOpacity)) / 100.0).ToString("0.00", ci);
+            int m = Math.Max(0, s.WatermarkMargin);
+            bool animated = Path.GetExtension(image).Equals(".gif", StringComparison.OrdinalIgnoreCase);
+
+            string position;
+            switch (s.WatermarkPosition)
+            {
+                case WatermarkPosition.TopLeft: position = $"{m}:{m}"; break;
+                case WatermarkPosition.TopRight: position = $"W-w-{m}:{m}"; break;
+                case WatermarkPosition.BottomLeft: position = $"{m}:H-h-{m}"; break;
+                case WatermarkPosition.Center: position = "(W-w)/2:(H-h)/2"; break;
+                default: position = $"W-w-{m}:H-h-{m}"; break;
+            }
+
+            string tempPath = Path.Combine(Path.GetDirectoryName(videoPath), Path.GetFileNameWithoutExtension(videoPath) + "-watermark" + Path.GetExtension(videoPath));
+            ReplayBufferEncoder encoder = ResolveEncoder(s, ffmpegPath);
+
+            string result = RunWatermark(ffmpegPath, videoPath, image, animated, watermarkWidth, opacity, position, bitrate, encoder, tempPath);
+
+            if (result != null && encoder != ReplayBufferEncoder.CPU)
+            {
+                DebugHelper.WriteLine("Watermark with " + GetEncoderName(encoder) + " failed: " + result);
+                result = RunWatermark(ffmpegPath, videoPath, image, animated, watermarkWidth, opacity, position, bitrate, ReplayBufferEncoder.CPU, tempPath);
+            }
+
+            if (result != null)
+            {
+                FileHelpers.DeleteFile(tempPath);
+                return result;
+            }
+
+            try
+            {
+                File.Delete(videoPath);
+                File.Move(tempPath, videoPath);
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
+
+            return null;
+        }
+
+        private static string RunWatermark(string ffmpegPath, string videoPath, string image, bool animated, int watermarkWidth, string opacity, string position,
+            int bitrate, ReplayBufferEncoder encoder, string outputPath)
+        {
+            string pixelFormat = encoder == ReplayBufferEncoder.Intel ? "nv12" : "yuv420p";
+            string videoEncoder;
+
+            switch (encoder)
+            {
+                case ReplayBufferEncoder.NVIDIA: videoEncoder = "-c:v h264_nvenc -preset p5 -rc vbr"; break;
+                case ReplayBufferEncoder.AMD: videoEncoder = "-c:v h264_amf -quality balanced -rc vbr_peak"; break;
+                case ReplayBufferEncoder.Intel: videoEncoder = "-c:v h264_qsv -preset medium"; break;
+                default: videoEncoder = "-c:v libx264 -preset veryfast"; break;
+            }
+
+            // An animated GIF loops for the whole video, a still image is held after its single frame
+            string imageInput = animated ? $"-ignore_loop 0 -i \"{image}\"" : $"-i \"{image}\"";
+            string shortest = animated ? ":shortest=1" : "";
+            string filter = $"[1:v]scale={watermarkWidth}:-2,format=rgba,colorchannelmixer=aa={opacity}[wm];[0:v][wm]overlay={position}{shortest},format={pixelFormat}[v]";
+
+            string args = $"-hide_banner -loglevel error -nostdin -y -i \"{videoPath}\" {imageInput} -filter_complex \"{filter}\" " +
+                $"-map \"[v]\" -map 0:a? {videoEncoder} -b:v {bitrate}k -maxrate {bitrate * 3 / 2}k -bufsize {bitrate * 2}k -c:a copy -movflags +faststart \"{outputPath}\"";
+
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(ffmpegPath, args)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using (Process p = Process.Start(psi))
+                {
+                    string stderr = p.StandardError.ReadToEnd();
+                    p.WaitForExit();
+
+                    if (p.ExitCode != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
+                    {
+                        return string.IsNullOrWhiteSpace(stderr) ? "ffmpeg exit code " + p.ExitCode : stderr.Trim().Lines().LastOrDefault();
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                return e.Message;
+            }
+
+            return null;
         }
 
         public static string GetEncoderName(ReplayBufferEncoder encoder)
