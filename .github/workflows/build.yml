@@ -37,9 +37,14 @@ jobs:
           dotnet build --no-restore --configuration Release -p:Platform=x64 --self-contained true /m:1 ShareX.Setup\ShareX.Setup.csproj | Tee-Object -FilePath build.log -Append
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
+      - name: Install Inno Setup
+        run: |
+          if (-not (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+
       - name: Setup
         run: |
-          & "ShareX.Setup\bin\Release\win-x64\ShareX.Setup.exe" -silent -job Release -platform x64 | Tee-Object -FilePath build.log -Append
+          $ErrorActionPreference = 'Continue'
+          & "ShareX.Setup\bin\Release\win-x64\ShareX.Setup.exe" -silent -job Release -platform x64 2>&1 | Tee-Object -FilePath build.log -Append
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload artifact
