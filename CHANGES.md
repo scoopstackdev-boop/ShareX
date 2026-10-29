@@ -1,20 +1,9 @@
 ## Changes
 
-* Update check uses this repository, the update button installs the latest mod release
-* Version numbers are now 20.2.0.N
-* Fixed screen recording failing with "Option thread_queue_size cannot be applied to input url"
-* Replay buffer menu added to the main window
-
-## Previous
-
-
-* Replay buffer (NVIDIA)
-  * Capture a monitor, an application, the active window or a region
-  * Duration from 30 seconds to 1 hour
-  * Quality presets or custom codec, bitrate and preset
-  * Desktop audio and microphone, mixed or on separate tracks
-  * Saved clips go through after capture tasks
-* Restart button and hotkey for screen recording
-* Mute button and hotkey for screen recording audio
+* Replay buffer works on AMD (AMF) and Intel (Quick Sync) GPUs, detected automatically
+* CPU encoding (x264) when no GPU encoder works
+* If the GPU capture path fails to start, frames are copied through system memory instead
+* Upload setting for clips: same as ShareX, off, or a chosen destination or custom uploader
+* Encoder choice under Advanced
 
 Installs over an existing ShareX install. Settings are kept.

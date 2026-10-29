@@ -13,7 +13,8 @@
   * Quality presets, or custom codec (H.264, HEVC, AV1), bitrate and preset
   * Desktop audio and microphone, mixed or on separate tracks
   * Saved clips go through after capture tasks, so uploading works as normal
-  * Encoding runs on NVENC, frames stay on the GPU
+  * Encodes on the GPU (NVIDIA, AMD or Intel), frames stay on the GPU. Falls back to CPU encoding
+  * Clips can upload to any ShareX destination or custom uploader, separate from screenshots
 * Screen recording
   * Restart button and hotkey
   * Mute button and hotkey
@@ -32,7 +33,7 @@ Hotkeys can be changed in Hotkey settings. Replay buffer settings are also in th
 
 ## Requirements
 * Windows 10 or 11, x64
-* NVIDIA GPU for the replay buffer
+* NVIDIA, AMD or Intel GPU recommended for the replay buffer, CPU encoding works without one
 * Desktop audio needs a loopback device (virtual-audio-capturer or Stereo Mix)
 
 ## Known issues

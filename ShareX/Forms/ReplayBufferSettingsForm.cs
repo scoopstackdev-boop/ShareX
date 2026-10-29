@@ -17,6 +17,7 @@
 using ShareX.HelpersLib;
 using ShareX.MediaLib;
 using ShareX.ScreenCaptureLib;
+using ShareX.UploadersLib;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -44,7 +45,9 @@ namespace ShareX
         private CheckBox cbAfterCapture, cbStartWithShareX, cbAdvanced, cbCursor, cbMicSeparate;
         private TextBox txtOutput, txtBuffer, txtFFmpeg;
         private Label lblArea, lblModeNote, lblQualityInfo, lblAudioNote, lblCustomNote;
-        private Control[] monitorRow, appRow, areaRow;
+        private Control[] monitorRow, appRow, areaRow, destinationRow, customUploaderRow;
+        private ComboBox cbEncoder, cbUpload, cbDestination, cbCustomUploader;
+        private readonly FileDestination[] destinations = (FileDestination[])Enum.GetValues(typeof(FileDestination));
 
         private List<KeyValuePair<string, string>> openApps = new List<KeyValuePair<string, string>>();
 
@@ -137,6 +140,21 @@ namespace ShareX
             // Saving
             AddHeader(basic, "Output");
             txtOutput = AddFolder(basic, "Folder", "Screenshots folder");
+
+            cbUpload = AddCombo(basic, "Upload", new[] { "Same as ShareX", "Off", "Upload to" }, out _);
+            cbUpload.SelectedIndexChanged += (s, e) => UpdateUploadVisibility();
+
+            cbDestination = new ComboBox() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
+            cbDestination.Items.AddRange(destinations.Select(x => (object)x.GetLocalizedDescription()).ToArray());
+            cbDestination.SelectedIndexChanged += (s, e) => UpdateUploadVisibility();
+            Button btnDestinations = new Button() { Text = "Accounts...", AutoSize = true };
+            btnDestinations.Click += (s, e) => TaskHelpers.OpenUploadersConfigWindow();
+            destinationRow = AddRow(basic, "Destination", cbDestination, btnDestinations);
+
+            cbCustomUploader = new ComboBox() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
+            Button btnCustomUploaders = new Button() { Text = "Edit...", AutoSize = true };
+            btnCustomUploaders.Click += (s, e) => TaskHelpers.OpenCustomUploaderSettingsWindow();
+            customUploaderRow = AddRow(basic, "Custom uploader", cbCustomUploader, btnCustomUploaders);
             cbAfterCapture = AddCheck(basic, "Run after capture tasks");
             cbStartWithShareX = AddCheck(basic, "Start replay buffer on startup");
 
@@ -155,7 +173,8 @@ namespace ShareX
             nudBuffer.ValueChanged += (s, e) => ExactLengthChanged();
             nudClip.ValueChanged += (s, e) => ExactLengthChanged();
 
-            cbCodec = AddCombo(advanced, "Codec", new[] { "H.264", "HEVC", "AV1 (RTX 40 series+)" }, out _);
+            cbEncoder = AddCombo(advanced, "Encoder", new[] { "Auto", "NVIDIA (NVENC)", "AMD (AMF)", "Intel (Quick Sync)", "CPU (x264)" }, out _);
+            cbCodec = AddCombo(advanced, "Codec", new[] { "H.264", "HEVC", "AV1 (newer GPUs only)" }, out _);
             nudBitrate = AddNumeric(advanced, "Bitrate (kbps)", 1000, 150000, 500);
             cbPreset = AddCombo(advanced, "Preset", new[] { "P1 (fastest)", "P2", "P3", "P4", "P5", "P6", "P7 (slowest)" }, out _);
             lblCustomNote = AddNote(advanced, "Only used with Custom quality.");
@@ -304,6 +323,10 @@ namespace ShareX
             cbCodec.SelectedIndex = (int)settings.Codec;
             nudBitrate.Value = Clamp(settings.BitrateKbps, nudBitrate);
             cbPreset.SelectedIndex = Math.Max(1, Math.Min(7, settings.Preset)) - 1;
+            cbEncoder.SelectedIndex = (int)settings.Encoder;
+            cbUpload.SelectedIndex = (int)settings.Upload;
+            cbDestination.SelectedIndex = Math.Max(0, Array.IndexOf(destinations, settings.UploadDestination));
+            LoadCustomUploaders();
             cbCursor.Checked = settings.DrawCursor;
             cbMicSeparate.Checked = settings.MicrophoneSeparateTrack;
             nudAudioBitrate.Value = Clamp(settings.AudioBitrateKbps, nudAudioBitrate);
@@ -338,6 +361,10 @@ namespace ShareX
             s.Codec = (ReplayBufferCodec)Math.Max(0, cbCodec.SelectedIndex);
             s.BitrateKbps = (int)nudBitrate.Value;
             s.Preset = cbPreset.SelectedIndex + 1;
+            s.Encoder = (ReplayBufferEncoder)Math.Max(0, cbEncoder.SelectedIndex);
+            s.Upload = (ReplayBufferUpload)Math.Max(0, cbUpload.SelectedIndex);
+            s.UploadDestination = destinations[Math.Max(0, cbDestination.SelectedIndex)];
+            s.UploadCustomUploaderIndex = Math.Max(0, cbCustomUploader.SelectedIndex);
             s.DrawCursor = cbCursor.Checked;
             s.DesktopAudioDevice = GetDevice(cbDesktopAudio);
             s.MicrophoneDevice = GetDevice(cbMicrophone);
@@ -491,6 +518,36 @@ namespace ShareX
             lblArea.Text = area.Width >= 16 && area.Height >= 16 ? $"{area.X}, {area.Y}, {area.Width}x{area.Height}" : "None";
         }
 
+        private void LoadCustomUploaders()
+        {
+            cbCustomUploader.Items.Clear();
+
+            List<CustomUploaderItem> uploaders = Program.UploadersConfig?.CustomUploadersList;
+
+            if (uploaders != null)
+            {
+                cbCustomUploader.Items.AddRange(uploaders.Select(x => (object)x.ToString()).ToArray());
+            }
+
+            if (cbCustomUploader.Items.Count == 0)
+            {
+                cbCustomUploader.Items.Add("None");
+            }
+
+            cbCustomUploader.SelectedIndex = Math.Min(Math.Max(0, settings.UploadCustomUploaderIndex), cbCustomUploader.Items.Count - 1);
+        }
+
+        private void UpdateUploadVisibility()
+        {
+            if (cbUpload == null || cbDestination == null || destinationRow == null || customUploaderRow == null) return;
+
+            bool upload = cbUpload.SelectedIndex == (int)ReplayBufferUpload.Destination;
+            bool custom = upload && cbDestination.SelectedIndex >= 0 && destinations[cbDestination.SelectedIndex] == FileDestination.CustomFileUploader;
+
+            SetVisible(destinationRow, upload);
+            SetVisible(customUploaderRow, custom);
+        }
+
         private void UpdateVisibility()
         {
             ReplayBufferCaptureMode mode = (ReplayBufferCaptureMode)Math.Max(0, cbMode.SelectedIndex);
@@ -498,6 +555,7 @@ namespace ShareX
             SetVisible(monitorRow, mode == ReplayBufferCaptureMode.Monitor);
             SetVisible(appRow, mode == ReplayBufferCaptureMode.App);
             SetVisible(areaRow, mode == ReplayBufferCaptureMode.Area);
+            UpdateUploadVisibility();
 
             switch (mode)
             {

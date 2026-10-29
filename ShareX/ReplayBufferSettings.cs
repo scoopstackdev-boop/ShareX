@@ -14,6 +14,7 @@
 
 #endregion License Information (GPL v3)
 
+using ShareX.UploadersLib;
 using System.Drawing;
 
 namespace ShareX
@@ -31,6 +32,22 @@ namespace ShareX
         Balanced,
         BestQuality,
         Custom
+    }
+
+    public enum ReplayBufferEncoder
+    {
+        Auto,
+        NVIDIA,
+        AMD,
+        Intel,
+        CPU
+    }
+
+    public enum ReplayBufferUpload
+    {
+        ShareXDefault,
+        Off,
+        Destination
     }
 
     public enum ReplayBufferCaptureMode
@@ -70,6 +87,8 @@ namespace ShareX
         // NVENC preset p1 (fastest) to p7 (best quality), used when Quality is Custom
         public int Preset { get; set; } = 4;
 
+        public ReplayBufferEncoder Encoder { get; set; } = ReplayBufferEncoder.Auto;
+
         public bool DrawCursor { get; set; } = true;
 
         public string DesktopAudioDevice { get; set; } = "";
@@ -87,6 +106,10 @@ namespace ShareX
         public string FFmpegPath { get; set; } = "";
 
         public bool RunAfterCaptureTasks { get; set; } = true;
+
+        public ReplayBufferUpload Upload { get; set; } = ReplayBufferUpload.ShareXDefault;
+        public FileDestination UploadDestination { get; set; } = FileDestination.Streamable;
+        public int UploadCustomUploaderIndex { get; set; } = 0;
         public bool StartWithShareX { get; set; } = false;
         public bool ShowAdvanced { get; set; } = false;
         public bool DefaultHotkeysAdded { get; set; } = false;

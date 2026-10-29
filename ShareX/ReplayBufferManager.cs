@@ -15,6 +15,7 @@
 #endregion License Information (GPL v3)
 
 using ShareX.HelpersLib;
+using ShareX.UploadersLib;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -67,6 +68,14 @@ namespace ShareX
 
         private const string WaitForApp = "wait";
 
+        // Detected once per session: probing encoders spawns ffmpeg a few times
+        private static readonly Dictionary<string, ReplayBufferEncoder> detectedEncoders = new Dictionary<string, ReplayBufferEncoder>(StringComparer.OrdinalIgnoreCase);
+
+        // Set when the zero-copy GPU path fails to start, frames are then copied to system memory first
+        private static bool compatibilityMode;
+        private static ReplayBufferEncoder currentEncoder = ReplayBufferEncoder.NVIDIA;
+        private static string currentFFmpegPath;
+
         private class CaptureTarget
         {
             public string Input;
@@ -108,6 +117,7 @@ namespace ShareX
                 if (form.ShowDialog() == DialogResult.OK)
                 {
                     SettingManager.SaveApplicationConfigAsync();
+                    ResetFallback();
                     Restart();
                 }
             }
@@ -168,6 +178,9 @@ namespace ShareX
                     return false;
                 }
 
+                currentFFmpegPath = ffmpegPath;
+                currentEncoder = ResolveEncoder(s, ffmpegPath);
+
                 keepSegments = (int)Math.Ceiling(Math.Max(s.BufferSeconds, s.ClipSeconds) / (double)SegmentSeconds) + 2;
                 lastError = "";
                 stopping = false;
@@ -175,7 +188,7 @@ namespace ShareX
                 ProcessStartInfo psi = new ProcessStartInfo()
                 {
                     FileName = ffmpegPath,
-                    Arguments = BuildArguments(s, segmentFolder, target),
+                    Arguments = BuildArguments(s, segmentFolder, target, currentEncoder),
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardInput = true,
@@ -228,7 +241,7 @@ namespace ShareX
 
             if (notify)
             {
-                TaskHelpers.ShowNotificationTip($"Replay buffer started ({FormatDuration(Settings.BufferSeconds)}).", "ShareX - Replay buffer", 2000);
+                TaskHelpers.ShowNotificationTip($"Replay buffer started ({FormatDuration(Settings.BufferSeconds)}, {GetEncoderName(currentEncoder)}).", "ShareX - Replay buffer", 2000);
             }
 
             StateChanged?.Invoke();
@@ -405,8 +418,12 @@ namespace ShareX
 
                 if (s.RunAfterCaptureTasks)
                 {
-                    WorkerTask task = WorkerTask.CreateFileJobTask(outputPath, metadata, taskSettings);
-                    TaskManager.Start(task);
+                    WorkerTask task = WorkerTask.CreateFileJobTask(outputPath, metadata, GetClipTaskSettings(s, taskSettings));
+
+                    if (task != null)
+                    {
+                        TaskManager.Start(task);
+                    }
                 }
                 else
                 {
@@ -458,7 +475,7 @@ namespace ShareX
             return Screen.AllScreens.OrderBy(x => !x.Primary).ToArray();
         }
 
-        private static string BuildArguments(ReplayBufferSettings s, string folder, CaptureTarget target)
+        private static string BuildArguments(ReplayBufferSettings s, string folder, CaptureTarget target, ReplayBufferEncoder vendor)
         {
             CultureInfo ci = CultureInfo.InvariantCulture;
             StringBuilder args = new StringBuilder("-hide_banner -loglevel error -nostats ");
@@ -473,9 +490,24 @@ namespace ShareX
                 args.Append($"-i audio={Helpers.EscapeCLIText(device)} ");
             }
 
-            // ddagrab and gfxcapture both keep frames on the GPU, NVENC reads them without a copy to system memory
+            // Frames stay on the GPU for NVIDIA and AMD, Intel maps them to QSV, CPU and compatibility mode copy them out
+            string input = target.Input;
+
+            if (vendor == ReplayBufferEncoder.CPU)
+            {
+                input += ",hwdownload,format=bgra,format=yuv420p";
+            }
+            else if (compatibilityMode)
+            {
+                input += ",hwdownload,format=bgra,format=nv12";
+            }
+            else if (vendor == ReplayBufferEncoder.Intel)
+            {
+                input += ",hwmap=derive_device=qsv,format=qsv";
+            }
+
             args.Append("-f lavfi ");
-            args.Append($"-i {target.Input} ");
+            args.Append($"-i {input} ");
 
             int videoInput = audioDevices.Count;
             args.Append($"-map {videoInput}:v ");
@@ -499,20 +531,35 @@ namespace ShareX
             ResolveEncoding(s, target.Width, target.Height, out ReplayBufferCodec codec, out int bitrate, out int preset);
             int fps = GetFPS(s);
 
-            string encoder;
-            switch (codec)
+            int gop = fps * SegmentSeconds;
+            int maxrate = bitrate * 3 / 2;
+            int bufsize = bitrate * 2;
+            string codecName = codec == ReplayBufferCodec.HEVC ? "hevc" : codec == ReplayBufferCodec.AV1 ? "av1" : "h264";
+
+            switch (vendor)
             {
-                case ReplayBufferCodec.HEVC: encoder = "hevc_nvenc"; break;
-                case ReplayBufferCodec.AV1: encoder = "av1_nvenc"; break;
-                default: encoder = "h264_nvenc"; break;
+                case ReplayBufferEncoder.AMD:
+                    string quality = preset <= 3 ? "speed" : preset <= 5 ? "balanced" : "quality";
+                    args.Append($"-c:v {codecName}_amf -usage transcoding -quality {quality} -rc vbr_peak ");
+                    break;
+                case ReplayBufferEncoder.Intel:
+                    string[] qsvPresets = { "veryfast", "veryfast", "faster", "fast", "medium", "slow", "slower" };
+                    args.Append($"-c:v {codecName}_qsv -preset {qsvPresets[preset - 1]} ");
+                    break;
+                case ReplayBufferEncoder.CPU:
+                    // HEVC and AV1 are too slow on the CPU for live capture
+                    codec = ReplayBufferCodec.H264;
+                    string[] x264Presets = { "ultrafast", "superfast", "veryfast", "veryfast", "faster", "fast", "medium" };
+                    args.Append($"-c:v libx264 -preset {x264Presets[preset - 1]} -tune zerolatency ");
+                    break;
+                default:
+                    args.Append($"-c:v {codecName}_nvenc -preset p{preset} -tune hq -rc vbr -forced-idr 1 ");
+                    break;
             }
 
-            int gop = fps * SegmentSeconds;
-
-            args.Append($"-c:v {encoder} -preset p{preset} -tune hq -rc vbr ");
-            args.Append(string.Format(ci, "-b:v {0}k -maxrate {1}k -bufsize {2}k ", bitrate, bitrate * 3 / 2, bitrate * 2));
+            args.Append(string.Format(ci, "-b:v {0}k -maxrate {1}k -bufsize {2}k ", bitrate, maxrate, bufsize));
             // A keyframe at every segment start so any run of segments joins cleanly
-            args.Append($"-g {gop} -forced-idr 1 -force_key_frames \"expr:gte(t,n_forced*{SegmentSeconds})\" ");
+            args.Append($"-g {gop} -force_key_frames \"expr:gte(t,n_forced*{SegmentSeconds})\" ");
 
             if (codec == ReplayBufferCodec.HEVC)
             {
@@ -528,6 +575,156 @@ namespace ShareX
             args.Append($"-f segment -segment_time {SegmentSeconds} -segment_format mpegts -reset_timestamps 0 \"{pattern}\"");
 
             return args.ToString();
+        }
+
+        public static string GetEncoderName(ReplayBufferEncoder encoder)
+        {
+            switch (encoder)
+            {
+                case ReplayBufferEncoder.NVIDIA: return "NVIDIA";
+                case ReplayBufferEncoder.AMD: return "AMD";
+                case ReplayBufferEncoder.Intel: return "Intel";
+                case ReplayBufferEncoder.CPU: return "CPU";
+                default: return "Auto";
+            }
+        }
+
+        private static ReplayBufferEncoder ResolveEncoder(ReplayBufferSettings s, string ffmpegPath)
+        {
+            if (s.Encoder != ReplayBufferEncoder.Auto)
+            {
+                return s.Encoder;
+            }
+
+            lock (detectedEncoders)
+            {
+                if (detectedEncoders.TryGetValue(ffmpegPath, out ReplayBufferEncoder cached)) return cached;
+            }
+
+            ReplayBufferEncoder found = ReplayBufferEncoder.CPU;
+            (ReplayBufferEncoder vendor, string encoder)[] candidates =
+            {
+                (ReplayBufferEncoder.NVIDIA, "h264_nvenc"),
+                (ReplayBufferEncoder.AMD, "h264_amf"),
+                (ReplayBufferEncoder.Intel, "h264_qsv")
+            };
+
+            foreach ((ReplayBufferEncoder vendor, string encoder) in candidates)
+            {
+                if (TestEncoder(ffmpegPath, encoder))
+                {
+                    found = vendor;
+                    break;
+                }
+            }
+
+            DebugHelper.WriteLine("Replay buffer encoder: " + GetEncoderName(found));
+
+            lock (detectedEncoders)
+            {
+                detectedEncoders[ffmpegPath] = found;
+            }
+
+            return found;
+        }
+
+        // Encodes a few blank frames, fails fast when the GPU or driver lacks the encoder
+        private static bool TestEncoder(string ffmpegPath, string encoder)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(ffmpegPath, $"-hide_banner -loglevel error -nostdin -f lavfi -i color=black:s=256x256:r=30 -frames:v 3 -c:v {encoder} -f null -")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using (Process p = Process.Start(psi))
+                {
+                    Task<string> stderr = p.StandardError.ReadToEndAsync();
+
+                    if (!p.WaitForExit(10000))
+                    {
+                        try { p.Kill(); } catch { }
+                        return false;
+                    }
+
+                    return p.ExitCode == 0;
+                }
+            }
+            catch (Exception e)
+            {
+                DebugHelper.WriteException(e);
+                return false;
+            }
+        }
+
+        // First failure: copy frames to system memory. Second, in Auto: encode on the CPU.
+        private static bool TryFallback()
+        {
+            if (currentEncoder == ReplayBufferEncoder.CPU)
+            {
+                return false;
+            }
+
+            if (!compatibilityMode)
+            {
+                compatibilityMode = true;
+                DebugHelper.WriteLine("Replay buffer: GPU frame path failed, using compatibility mode.");
+                return true;
+            }
+
+            if (Settings.Encoder == ReplayBufferEncoder.Auto && currentFFmpegPath != null)
+            {
+                lock (detectedEncoders)
+                {
+                    detectedEncoders[currentFFmpegPath] = ReplayBufferEncoder.CPU;
+                }
+
+                compatibilityMode = false;
+                TaskHelpers.ShowNotificationTip(GetEncoderName(currentEncoder) + " encoder failed. Using CPU encoding.", "ShareX - Replay buffer", 4000);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static void ResetFallback()
+        {
+            compatibilityMode = false;
+
+            lock (detectedEncoders)
+            {
+                detectedEncoders.Clear();
+            }
+        }
+
+        private static TaskSettings GetClipTaskSettings(ReplayBufferSettings s, TaskSettings taskSettings)
+        {
+            TaskSettings clipSettings = TaskSettings.GetSafeTaskSettings(taskSettings);
+
+            switch (s.Upload)
+            {
+                case ReplayBufferUpload.Off:
+                    clipSettings.UseDefaultAfterCaptureJob = false;
+                    clipSettings.AfterCaptureJob &= ~AfterCaptureTasks.UploadImageToHost;
+                    break;
+                case ReplayBufferUpload.Destination:
+                    clipSettings.UseDefaultAfterCaptureJob = false;
+                    clipSettings.AfterCaptureJob |= AfterCaptureTasks.UploadImageToHost;
+                    clipSettings.UseDefaultDestinations = false;
+                    clipSettings.FileDestination = s.UploadDestination;
+
+                    if (s.UploadDestination == FileDestination.CustomFileUploader)
+                    {
+                        clipSettings.OverrideCustomUploader = true;
+                        clipSettings.CustomUploaderIndex = s.UploadCustomUploaderIndex;
+                    }
+                    break;
+            }
+
+            return clipSettings;
         }
 
         public static string GetFFmpegPath(ReplayBufferSettings s)
@@ -890,6 +1087,13 @@ namespace ShareX
             {
                 ReplayBufferSettings s = Settings;
                 bool ranLongEnough = (DateTime.UtcNow - startTime).TotalSeconds > 10;
+
+                if (!ranLongEnough && TryFallback())
+                {
+                    Program.MainForm?.InvokeSafe(() => Start(false));
+                    StateChanged?.Invoke();
+                    return;
+                }
 
                 if (s.CaptureMode == ReplayBufferCaptureMode.App && ranLongEnough)
                 {
