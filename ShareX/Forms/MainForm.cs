@@ -1907,6 +1907,30 @@ namespace ShareX
         private void AddReplayBufferTrayMenu()
         {
             ToolStripMenuItem tsmiReplay = new ToolStripMenuItem("Replay buffer", Resources.clock);
+            FillReplayBufferMenu(tsmiReplay);
+
+            int index = cmsTray.Items.IndexOf(tssTray1);
+            cmsTray.Items.Insert(index < 0 ? 0 : index, tsmiReplay);
+
+            // Same menu in the main window, next to Tools
+            ToolStripDropDownButton tsddbReplay = new ToolStripDropDownButton("Replay buffer", Resources.clock)
+            {
+                ImageAlign = tsddbTools.ImageAlign,
+                TextAlign = tsddbTools.TextAlign,
+                TextImageRelation = tsddbTools.TextImageRelation,
+                ShowDropDownArrow = tsddbTools.ShowDropDownArrow,
+                Padding = tsddbTools.Padding,
+                Margin = tsddbTools.Margin,
+                AutoToolTip = false
+            };
+            FillReplayBufferMenu(tsddbReplay);
+
+            int mainIndex = tsMain.Items.IndexOf(tsddbTools);
+            tsMain.Items.Insert(mainIndex < 0 ? tsMain.Items.Count : mainIndex + 1, tsddbReplay);
+        }
+
+        private static void FillReplayBufferMenu(ToolStripDropDownItem tsmiReplay)
+        {
             ToolStripMenuItem tsmiToggle = new ToolStripMenuItem("Start", Resources.clock__arrow);
             ToolStripMenuItem tsmiSave = new ToolStripMenuItem("Save replay", Resources.disk);
             ToolStripMenuItem tsmiSettings = new ToolStripMenuItem("Settings...", Resources.gear);
@@ -1918,13 +1942,9 @@ namespace ShareX
             tsmiReplay.DropDownItems.AddRange(new ToolStripItem[] { tsmiToggle, tsmiSave, new ToolStripSeparator(), tsmiSettings });
             tsmiReplay.DropDownOpening += (sender, e) =>
             {
-                bool running = ReplayBufferManager.IsRunning;
-                tsmiToggle.Text = running ? "Stop" : "Start";
-                tsmiSave.Enabled = running;
+                tsmiToggle.Text = ReplayBufferManager.IsActive ? "Stop" : "Start";
+                tsmiSave.Enabled = ReplayBufferManager.IsRunning;
             };
-
-            int index = cmsTray.Items.IndexOf(tssTray1);
-            cmsTray.Items.Insert(index < 0 ? 0 : index, tsmiReplay);
         }
 
         private void tsbHotkeySettings_Click(object sender, EventArgs e)

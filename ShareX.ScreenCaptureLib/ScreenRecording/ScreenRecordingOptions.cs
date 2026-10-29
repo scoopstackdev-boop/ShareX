@@ -348,7 +348,6 @@ namespace ShareX.ScreenCaptureLib
         private void AppendInputDevice(StringBuilder args, string inputDevice, bool audioSource)
         {
             args.Append($"-f {inputDevice} ");
-            args.Append("-thread_queue_size 1024 "); // This option sets the maximum number of queued packets when reading from the file or device.
             args.Append("-rtbufsize 256M "); // Default real time buffer size is 3041280 (3M)
 
             if (audioSource)

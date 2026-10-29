@@ -1,5 +1,11 @@
 ## Changes
 
+* Fixed screen recording failing with "Option thread_queue_size cannot be applied to input url"
+* Replay buffer menu added to the main window
+
+## Previous
+
+
 * Replay buffer (NVIDIA)
   * Capture a monitor, an application, the active window or a region
   * Duration from 30 seconds to 1 hour

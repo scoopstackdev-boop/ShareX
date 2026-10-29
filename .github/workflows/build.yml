@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 env:
-  RELEASE_TAG: v20.2.0-mod.1
+  RELEASE_TAG: v20.2.0-mod.2
 
 jobs:
   build:
