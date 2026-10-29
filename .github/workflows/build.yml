@@ -20,24 +20,28 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 9.0.x
 
       - name: Restore NuGet packages
-        run: dotnet restore --runtime win-x64 ShareX.sln
+        run: |
+          dotnet restore --runtime win-x64 ShareX\ShareX.csproj
+          dotnet restore --runtime win-x64 ShareX.Setup\ShareX.Setup.csproj
 
       - name: Build
-        run: dotnet build --no-restore --configuration Release -p:Platform=x64 --self-contained true /m:1 ShareX.sln
+        run: |
+          dotnet build --no-restore --configuration Release -p:Platform=x64 --self-contained true /m:1 ShareX\ShareX.csproj
+          dotnet build --no-restore --configuration Release -p:Platform=x64 --self-contained true /m:1 ShareX.Setup\ShareX.Setup.csproj
 
       - name: Setup
         run: '& "ShareX.Setup\bin\Release\win-x64\ShareX.Setup.exe" -silent -job Release -platform x64'
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ShareX-x64
           path: |
@@ -46,7 +50,7 @@ jobs:
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: ShareX ${{ github.ref_name }}
           body_path: CHANGES.md
