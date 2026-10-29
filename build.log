@@ -1,0 +1,68 @@
+  Determining projects to restore...
+D:\a\ShareX\ShareX\ShareX.UploadersLib\ShareX.UploadersLib.csproj : warning NU1903: Package 'SSH.NET' 2025.1.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-mggc-4xg6-vcxf [D:\a\ShareX\ShareX\ShareX.sln]
+D:\a\ShareX\ShareX\ShareX.UploadersLib\ShareX.UploadersLib.csproj : warning NU1903: Package 'SSH.NET' 2025.1.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-q939-rpr3-3284 [D:\a\ShareX\ShareX\ShareX.sln]
+  Restored D:\a\ShareX\ShareX\ShareX.Setup\ShareX.Setup.csproj (in 21.9 sec).
+  Restored D:\a\ShareX\ShareX\ShareX.ImageEditor\ShareX.ImageEditor.csproj (in 21.96 sec).
+  Restored D:\a\ShareX\ShareX\ShareX.ScreenCaptureLib\ShareX.ScreenCaptureLib.csproj (in 10 ms).
+  Restored D:\a\ShareX\ShareX\ShareX.UploadersLib\ShareX.UploadersLib.csproj (in 21.9 sec).
+  Restored D:\a\ShareX\ShareX\ShareX.NativeMessagingHost\ShareX.NativeMessagingHost.csproj (in 6 ms).
+  Restored D:\a\ShareX\ShareX\ShareX.MediaLib\ShareX.MediaLib.csproj (in 6 ms).
+  Restored D:\a\ShareX\ShareX\ShareX.IndexerLib\ShareX.IndexerLib.csproj (in 12 ms).
+  Restored D:\a\ShareX\ShareX\ShareX.ImageEffectsLib\ShareX.ImageEffectsLib.csproj (in 11 ms).
+  Restored D:\a\ShareX\ShareX\ShareX\ShareX.csproj (in 21.99 sec).
+  Restored D:\a\ShareX\ShareX\ShareX.HelpersLib\ShareX.HelpersLib.csproj (in 5 ms).
+  Restored D:\a\ShareX\ShareX\ShareX.HistoryLib\ShareX.HistoryLib.csproj (in 14 ms).
+  Restored D:\a\ShareX\ShareX\ShareX.ImageEditor.App\ShareX.ImageEditor.App.csproj (in 843 ms).
+  ShareX.ImageEditor -> D:\a\ShareX\ShareX\ShareX.ImageEditor\bin\Release\win-x64\ShareX.ImageEditor.dll
+  ShareX.ImageEditor.App -> D:\a\ShareX\ShareX\ShareX\bin\Release\win-x64\ShareX.ImageEditor.App.dll
+  ShareX.HelpersLib -> D:\a\ShareX\ShareX\ShareX.HelpersLib\bin\Release\win-x64\ShareX.HelpersLib.dll
+  ShareX.NativeMessagingHost -> D:\a\ShareX\ShareX\ShareX\bin\Release\win-x64\ShareX_NativeMessagingHost.dll
+  ShareX.HistoryLib -> D:\a\ShareX\ShareX\ShareX.HistoryLib\bin\Release\win-x64\ShareX.HistoryLib.dll
+  ShareX.ImageEffectsLib -> D:\a\ShareX\ShareX\ShareX.ImageEffectsLib\bin\Release\win-x64\ShareX.ImageEffectsLib.dll
+  ShareX.IndexerLib -> D:\a\ShareX\ShareX\ShareX.IndexerLib\bin\Release\win-x64\ShareX.IndexerLib.dll
+  ShareX.MediaLib -> D:\a\ShareX\ShareX\ShareX.MediaLib\bin\Release\win-x64\ShareX.MediaLib.dll
+  ShareX.ScreenCaptureLib -> D:\a\ShareX\ShareX\ShareX.ScreenCaptureLib\bin\Release\win-x64\ShareX.ScreenCaptureLib.dll
+D:\a\ShareX\ShareX\ShareX.UploadersLib\ShareX.UploadersLib.csproj : warning NU1903: Package 'SSH.NET' 2025.1.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-mggc-4xg6-vcxf
+D:\a\ShareX\ShareX\ShareX.UploadersLib\ShareX.UploadersLib.csproj : warning NU1903: Package 'SSH.NET' 2025.1.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-q939-rpr3-3284
+  ShareX.UploadersLib -> D:\a\ShareX\ShareX\ShareX.UploadersLib\bin\Release\win-x64\ShareX.UploadersLib.dll
+  ShareX -> D:\a\ShareX\ShareX\ShareX\bin\Release\win-x64\ShareX.dll
+
+Build succeeded.
+
+D:\a\ShareX\ShareX\ShareX.UploadersLib\ShareX.UploadersLib.csproj : warning NU1903: Package 'SSH.NET' 2025.1.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-mggc-4xg6-vcxf
+D:\a\ShareX\ShareX\ShareX.UploadersLib\ShareX.UploadersLib.csproj : warning NU1903: Package 'SSH.NET' 2025.1.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-q939-rpr3-3284
+    2 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:48.81
+  ShareX.HelpersLib -> D:\a\ShareX\ShareX\ShareX.HelpersLib\bin\Release\win-x64\ShareX.HelpersLib.dll
+  ShareX.Setup -> D:\a\ShareX\ShareX\ShareX.Setup\bin\Release\win-x64\ShareX.Setup.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:02.05
+ShareX setup started.
+Silent: True
+Platform: x64
+Job: Release
+Parent directory: D:\a\ShareX\ShareX
+Configuration: Release
+Application version: 20.2.0
+Downloading: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+Extracting: D:\a\ShareX\ShareX\Output\ffmpeg-master-latest-win64-gpl.zip
+Downloading: https://github.com/ShareX/RecorderDevices/releases/download/v0.12.10/recorder-devices-0.12.10-setup.exe
+Downloading: https://github.com/ShareX/ExifTool/releases/download/v13.29/exiftool-13.29-win64.zip
+Extracting: D:\a\ShareX\ShareX\Output\exiftool-13.29-win64.zip
+Unhandled exception. System.IO.FileNotFoundException: Could not find file 'D:\a\ShareX\ShareX\Output\exiftool-13.29-win64.zip'.
+File name: 'D:\a\ShareX\ShareX\Output\exiftool-13.29-win64.zip'
+   at Microsoft.Win32.SafeHandles.SafeFileHandle.CreateFile(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options)
+   at Microsoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.Strategies.FileStreamHelpers.ChooseStrategyCore(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)
+   at System.IO.FileStream..ctor(String path, FileMode mode, FileAccess access, FileShare share, Int32 bufferSize, Boolean useAsync)
+   at System.IO.Compression.ZipFile.Open(String archiveFileName, ZipArchiveMode mode, Encoding entryNameEncoding)
+   at ShareX.HelpersLib.ZipManager.Extract(String archivePath, String destination, Boolean retainDirectoryStructure, Func`2 filter, Int64 maxUncompressedSize) in D:\a\ShareX\ShareX\ShareX.HelpersLib\Zip\ZipManager.cs:line 39
+   at ShareX.Setup.Program.DownloadExifTool() in D:\a\ShareX\ShareX\ShareX.Setup\Program.cs:line 489
+   at ShareX.Setup.Program.Main(String[] args) in D:\a\ShareX\ShareX\ShareX.Setup\Program.cs:line 127
