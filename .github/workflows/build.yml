@@ -28,17 +28,19 @@ jobs:
           dotnet-version: 9.0.x
 
       - name: Restore NuGet packages
-        run: |
-          dotnet restore --runtime win-x64 ShareX\ShareX.csproj
-          dotnet restore --runtime win-x64 ShareX.Setup\ShareX.Setup.csproj
+        run: dotnet restore --runtime win-x64 ShareX.sln | Tee-Object -FilePath build.log -Append
 
       - name: Build
         run: |
-          dotnet build --no-restore --configuration Release -p:Platform=x64 --self-contained true /m:1 ShareX\ShareX.csproj
-          dotnet build --no-restore --configuration Release -p:Platform=x64 --self-contained true /m:1 ShareX.Setup\ShareX.Setup.csproj
+          dotnet build --no-restore --configuration Release -p:Platform=x64 --self-contained true /m:1 ShareX\ShareX.csproj | Tee-Object -FilePath build.log -Append
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          dotnet build --no-restore --configuration Release -p:Platform=x64 --self-contained true /m:1 ShareX.Setup\ShareX.Setup.csproj | Tee-Object -FilePath build.log -Append
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Setup
-        run: '& "ShareX.Setup\bin\Release\win-x64\ShareX.Setup.exe" -silent -job Release -platform x64'
+        run: |
+          & "ShareX.Setup\bin\Release\win-x64\ShareX.Setup.exe" -silent -job Release -platform x64 | Tee-Object -FilePath build.log -Append
+          if ($LASTEXITCODE -ne 0) { exit 1 }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
@@ -57,3 +59,16 @@ jobs:
           files: |
             Output/*-setup-x64.exe
             Output/*-portable-x64.zip
+
+      - name: Publish build log
+        if: failure()
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          Copy-Item build.log $env:RUNNER_TEMP\build.log -ErrorAction SilentlyContinue
+          git checkout --orphan build-log
+          git rm -rf --quiet .
+          Copy-Item $env:RUNNER_TEMP\build.log build.log -ErrorAction SilentlyContinue
+          git add build.log
+          git commit -m "Build log for ${{ github.sha }}"
+          git push -f origin build-log
