@@ -44,6 +44,7 @@ namespace ShareX.ScreenCaptureLib
         public Rectangle CaptureArea { get; set; }
         public float Duration { get; set; }
         public bool DrawCursor { get; set; }
+        public bool AudioMuted { get; set; }
         public FFmpegOptions FFmpeg { get; set; } = new FFmpegOptions();
 
         public string GetFFmpegCommands()
@@ -303,6 +304,12 @@ namespace ShareX.ScreenCaptureLib
                             break;
                     }
                 }
+            }
+
+            if (IsRecording && FFmpeg.IsAudioSourceSelected)
+            {
+                // Named so the volume can be changed while ffmpeg is running
+                args.Append($"-af volume@mute={(AudioMuted ? 0 : 1)} ");
             }
 
             if (FFmpeg.IsAudioSourceSelected)

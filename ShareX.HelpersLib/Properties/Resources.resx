@@ -1236,6 +1236,21 @@ Would you like to download and install it?</value>
   <data name="HotkeyType_PauseScreenRecording" xml:space="preserve">
     <value>Pause screen recording</value>
   </data>
+  <data name="HotkeyType_RestartScreenRecording" xml:space="preserve">
+    <value>Restart screen recording</value>
+  </data>
+  <data name="HotkeyType_ToggleScreenRecordingAudio" xml:space="preserve">
+    <value>Mute/Unmute screen recording audio</value>
+  </data>
+  <data name="HotkeyType_ToggleReplayBuffer" xml:space="preserve">
+    <value>Start/Stop replay buffer</value>
+  </data>
+  <data name="HotkeyType_SaveReplayBuffer" xml:space="preserve">
+    <value>Save replay</value>
+  </data>
+  <data name="HotkeyType_ReplayBufferSettings" xml:space="preserve">
+    <value>Replay buffer settings</value>
+  </data>
   <data name="ShapeType_DrawingFreehandArrow" xml:space="preserve">
     <value>Freehand arrow</value>
   </data>
