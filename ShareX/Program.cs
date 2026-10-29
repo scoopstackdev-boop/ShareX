@@ -381,6 +381,8 @@ namespace ShareX
 
                 DebugHelper.WriteLine("ShareX closing.");
 
+                ReplayBufferManager.Stop();
+
                 WatchFolderManager?.Dispose();
                 SettingManager.HistoryClose();
                 SettingManager.SaveAllSettings();

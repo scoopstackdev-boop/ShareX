@@ -197,6 +197,15 @@ namespace ShareX.ScreenCaptureLib
             }
         }
 
+        public void SetAudioMuted(bool muted)
+        {
+            if (OutputType == ScreenRecordOutput.FFmpeg && IsRecording && ffmpeg != null)
+            {
+                // ffmpeg reads interactive filter commands from stdin: c <target> <time> <command> <argument>
+                ffmpeg.WriteInput($"cvolume@mute -1 volume {(muted ? 0 : 1)}");
+            }
+        }
+
         public void StopRecording()
         {
             stopRequested = true;

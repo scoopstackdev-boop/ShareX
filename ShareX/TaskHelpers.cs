@@ -184,6 +184,21 @@ namespace ShareX
                 case HotkeyType.AbortScreenRecording:
                     AbortScreenRecording();
                     break;
+                case HotkeyType.RestartScreenRecording:
+                    ScreenRecordManager.RestartRecording();
+                    break;
+                case HotkeyType.ToggleScreenRecordingAudio:
+                    ScreenRecordManager.ToggleAudioMute();
+                    break;
+                case HotkeyType.ToggleReplayBuffer:
+                    ReplayBufferManager.Toggle();
+                    break;
+                case HotkeyType.SaveReplayBuffer:
+                    ReplayBufferManager.Save(safeTaskSettings);
+                    break;
+                case HotkeyType.ReplayBufferSettings:
+                    ReplayBufferManager.OpenSettings();
+                    break;
                 // Tools
                 case HotkeyType.ColorPicker:
                     ShowScreenColorPickerDialog(safeTaskSettings);
@@ -2074,6 +2089,11 @@ namespace ShareX
                     case HotkeyType.StopScreenRecording: return Resources.camcorder__minus;
                     case HotkeyType.PauseScreenRecording: return Resources.camcorder_pencil;
                     case HotkeyType.AbortScreenRecording: return Resources.camcorder__exclamation;
+                    case HotkeyType.RestartScreenRecording: return Resources.arrow_circle_double_135;
+                    case HotkeyType.ToggleScreenRecordingAudio: return Resources.camcorder_pencil;
+                    case HotkeyType.ToggleReplayBuffer: return Resources.clock__arrow;
+                    case HotkeyType.SaveReplayBuffer: return Resources.disk;
+                    case HotkeyType.ReplayBufferSettings: return Resources.clock;
                     // Tools
                     case HotkeyType.ColorPicker: return Resources.color;
                     case HotkeyType.ScreenColorPicker: return Resources.pipette;

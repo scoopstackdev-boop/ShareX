@@ -36,6 +36,7 @@ namespace ShareX.ScreenCaptureLib
     public partial class ScreenRecordForm : Form
     {
         public event Action StopRequested;
+        public event Action AudioMuteToggleRequested;
 
         private ScreenRecordingStatus status;
 
@@ -93,10 +94,40 @@ namespace ShareX.ScreenCaptureLib
         private Point initialLocation;
         private static int lastIconStatus = -1;
         private const int panelOffset = 3;
+        private int restartRequested;
+        private NoFocusBorderButton btnRestart;
+        private ScreenRecordAudioButton btnAudio;
+        private ToolTip ttAudio;
+
+        public bool AudioToggleAvailable
+        {
+            get
+            {
+                return btnAudio.Enabled;
+            }
+            set
+            {
+                btnAudio.Enabled = value;
+            }
+        }
+
+        public bool RestartRequested
+        {
+            get
+            {
+                return Volatile.Read(ref restartRequested) != 0;
+            }
+        }
+
+        public bool ConsumeRestartRequest()
+        {
+            return Interlocked.Exchange(ref restartRequested, 0) != 0;
+        }
 
         public ScreenRecordForm(Rectangle regionRectangle)
         {
             InitializeComponent();
+            InitializeExtraControls();
             ShareXResources.ApplyTheme(this);
             niTray.Icon = ShareXResources.Icon;
 
@@ -129,6 +160,57 @@ namespace ShareX.ScreenCaptureLib
             ChangeState(ScreenRecordState.Waiting);
         }
 
+        private void InitializeExtraControls()
+        {
+            btnRestart = new NoFocusBorderButton()
+            {
+                Font = btnPause.Font,
+                Name = "btnRestart",
+                Text = "Restart",
+                TabStop = false,
+                Enabled = false
+            };
+            btnRestart.MouseClick += btnRestart_MouseClick;
+
+            btnAudio = new ScreenRecordAudioButton()
+            {
+                Name = "btnAudio",
+                TabStop = false,
+                Enabled = false
+            };
+            btnAudio.MouseClick += btnAudio_MouseClick;
+
+            ttAudio = new ToolTip();
+            ttAudio.SetToolTip(btnAudio, "Mute");
+
+            const int height = 42;
+            const int buttonWidth = 100;
+            const int audioWidth = 42;
+            const int timerWidth = 107;
+
+            btnStart.SetBounds(0, 0, buttonWidth, height);
+            btnPause.SetBounds(buttonWidth - 1, 0, buttonWidth, height);
+            btnRestart.SetBounds((buttonWidth - 1) * 2, 0, buttonWidth, height);
+            btnAbort.SetBounds((buttonWidth - 1) * 3, 0, buttonWidth, height);
+            btnAudio.SetBounds((buttonWidth - 1) * 4, 0, audioWidth, height);
+            lblTimer.SetBounds((buttonWidth - 1) * 4 + audioWidth - 1, 0, timerWidth, height);
+
+            pInfo.Controls.Add(btnRestart);
+            pInfo.Controls.Add(btnAudio);
+            pInfo.Width = lblTimer.Right;
+        }
+
+        public void SetAudioMuted(bool muted)
+        {
+            btnAudio.Muted = muted;
+            ttAudio.SetToolTip(btnAudio, muted ? "Unmute" : "Mute");
+        }
+
+        public void SetAudioSourceType(bool isMicrophone)
+        {
+            btnAudio.IsMicrophone = isMicrophone;
+        }
+
         protected override void Dispose(bool disposing)
         {
             if (disposing)
@@ -141,6 +223,11 @@ namespace ShareX.ScreenCaptureLib
                 if (RecordResetEvent != null)
                 {
                     RecordResetEvent.Dispose();
+                }
+
+                if (ttAudio != null)
+                {
+                    ttAudio.Dispose();
                 }
             }
 
@@ -186,6 +273,30 @@ namespace ShareX.ScreenCaptureLib
             {
                 RecordResetEvent?.Set();
             }
+        }
+
+        public void RestartRecording()
+        {
+            if (Status != ScreenRecordingStatus.Recording && Status != ScreenRecordingStatus.Paused)
+            {
+                return;
+            }
+
+            bool wasRecording = Status == ScreenRecordingStatus.Recording;
+
+            Interlocked.Exchange(ref restartRequested, 1);
+            Status = ScreenRecordingStatus.Waiting;
+            Timer.Reset();
+            IsCountdown = false;
+            StopRecordingTimer();
+            UpdateUI();
+
+            if (wasRecording)
+            {
+                OnStopRequested();
+            }
+
+            RecordResetEvent?.Set();
         }
 
         public void AbortRecording()
@@ -270,6 +381,7 @@ namespace ShareX.ScreenCaptureLib
                     btnStart.Text = Resources.ScreenRecordForm_Stop;
                     tsmiStart.Text = Resources.ScreenRecordForm_Stop;
                     tsmiStart.Image = Resources.tick;
+                    btnRestart.Enabled = false;
                     break;
                 case ScreenRecordingStatus.Waiting:
                 case ScreenRecordingStatus.Paused:
@@ -288,6 +400,7 @@ namespace ShareX.ScreenCaptureLib
                     tsmiPause.Text = Resources.Resume;
                     tsmiPause.Image = Resources.control;
                     lblTimer.Cursor = Cursors.SizeAll;
+                    btnRestart.Enabled = Status == ScreenRecordingStatus.Paused;
                     borderColor = Color.FromArgb(241, 196, 27);
                     Refresh();
                     break;
@@ -297,6 +410,7 @@ namespace ShareX.ScreenCaptureLib
                     tsmiPause.Text = Resources.Pause;
                     tsmiPause.Image = Resources.control_pause;
                     lblTimer.Cursor = Cursors.Default;
+                    btnRestart.Enabled = true;
                     break;
             }
         }
@@ -426,6 +540,22 @@ namespace ShareX.ScreenCaptureLib
             if (e.Button == MouseButtons.Left)
             {
                 PauseResumeRecording();
+            }
+        }
+
+        private void btnRestart_MouseClick(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                RestartRecording();
+            }
+        }
+
+        private void btnAudio_MouseClick(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                AudioMuteToggleRequested?.Invoke();
             }
         }
 

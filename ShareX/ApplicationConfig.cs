@@ -296,6 +296,12 @@ namespace ShareX
 
         #endregion ScreenRecord Form
 
+        #region Replay buffer
+
+        public ReplayBufferSettings ReplayBufferSettings = new ReplayBufferSettings();
+
+        #endregion Replay buffer
+
         #region Actions toolbar
 
         public List<HotkeyType> ActionsToolbarList = new List<HotkeyType>() { HotkeyType.RectangleRegion, HotkeyType.PrintScreen, HotkeyType.ScreenRecorder,

@@ -1640,6 +1640,36 @@ namespace ShareX.HelpersLib.Properties {
             }
         }
         
+        internal static string HotkeyType_RestartScreenRecording {
+            get {
+                return ResourceManager.GetString("HotkeyType_RestartScreenRecording", resourceCulture);
+            }
+        }
+        
+        internal static string HotkeyType_ToggleScreenRecordingAudio {
+            get {
+                return ResourceManager.GetString("HotkeyType_ToggleScreenRecordingAudio", resourceCulture);
+            }
+        }
+        
+        internal static string HotkeyType_ToggleReplayBuffer {
+            get {
+                return ResourceManager.GetString("HotkeyType_ToggleReplayBuffer", resourceCulture);
+            }
+        }
+        
+        internal static string HotkeyType_SaveReplayBuffer {
+            get {
+                return ResourceManager.GetString("HotkeyType_SaveReplayBuffer", resourceCulture);
+            }
+        }
+        
+        internal static string HotkeyType_ReplayBufferSettings {
+            get {
+                return ResourceManager.GetString("HotkeyType_ReplayBufferSettings", resourceCulture);
+            }
+        }
+        
         /// <summary>
         ///   Looks up a localized string similar to Pin to screen.
         /// </summary>

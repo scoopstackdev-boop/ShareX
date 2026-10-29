@@ -38,6 +38,7 @@ namespace ShareX
     public static class ScreenRecordManager
     {
         public static bool IsRecording { get; private set; }
+        public static bool AudioMuted { get; private set; }
 
         private static ScreenRecorder screenRecorder;
         private static ScreenRecordForm recordForm;
@@ -71,6 +72,30 @@ namespace ShareX
             {
                 recordForm.PauseResumeRecording();
             }
+        }
+
+        public static void RestartRecording()
+        {
+            ScreenRecordForm form = recordForm;
+
+            if (IsRecording && form != null && !form.IsDisposed)
+            {
+                form.InvokeSafe(form.RestartRecording);
+            }
+        }
+
+        public static void ToggleAudioMute()
+        {
+            ScreenRecordForm form = recordForm;
+
+            if (!IsRecording || form == null || form.IsDisposed || !form.AudioToggleAvailable)
+            {
+                return;
+            }
+
+            AudioMuted = !AudioMuted;
+            screenRecorder?.SetAudioMuted(AudioMuted);
+            form.InvokeSafe(() => form.SetAudioMuted(AudioMuted));
         }
 
         public static void AbortRecording()
@@ -179,6 +204,7 @@ namespace ShareX
             Program.Settings.ScreenRecordRegion = captureRectangle;
 
             IsRecording = true;
+            AudioMuted = false;
 
             string path = "";
             string concatPath = "";
@@ -195,6 +221,10 @@ namespace ShareX
             };
 
             recordForm.StopRequested += StopRecording;
+            recordForm.AudioMuteToggleRequested += ToggleAudioMute;
+            recordForm.AudioToggleAvailable = taskSettings.CaptureSettings.FFmpegOptions.IsAudioSourceSelected &&
+                !taskSettings.CaptureSettings.FFmpegOptions.UseCustomCommands;
+            recordForm.SetAudioSourceType(!IsDesktopAudioSource(taskSettings.CaptureSettings.FFmpegOptions.AudioSource));
             recordForm.Show();
 
             Task.Run(() =>
@@ -226,11 +256,13 @@ namespace ShareX
                         FileHelpers.DeleteFile(tempPath);
                     }
 
+                    bool restarted = false;
+
                     while (!abortRequested && (recordForm.Status == ScreenRecordingStatus.Waiting || recordForm.Status == ScreenRecordingStatus.Paused))
                     {
                         recordForm.ChangeState(ScreenRecordState.BeforeStart);
 
-                        if (recordForm.Status == ScreenRecordingStatus.Paused || !taskSettings.CaptureSettings.ScreenRecordAutoStart)
+                        if (recordForm.Status == ScreenRecordingStatus.Paused || (!taskSettings.CaptureSettings.ScreenRecordAutoStart && !restarted))
                         {
                             recordForm.RecordResetEvent.WaitOne();
                         }
@@ -249,6 +281,18 @@ namespace ShareX
                         if (recordForm.Status == ScreenRecordingStatus.Aborted)
                         {
                             abortRequested = true;
+                        }
+
+                        restarted = false;
+
+                        if (!abortRequested && recordForm.ConsumeRestartRequest())
+                        {
+                            FileHelpers.DeleteFile(path);
+                            FileHelpers.DeleteFile(concatPath);
+                            FileHelpers.DeleteFile(tempPath);
+                            recordForm.RecordResetEvent.Reset();
+                            restarted = true;
+                            continue;
                         }
 
                         if (recordForm.Status == ScreenRecordingStatus.Waiting || recordForm.Status == ScreenRecordingStatus.Paused)
@@ -271,7 +315,8 @@ namespace ShareX
                                 Duration = duration,
                                 OutputPath = path,
                                 CaptureArea = captureRectangle,
-                                DrawCursor = taskSettings.CaptureSettings.ScreenRecordShowCursor
+                                DrawCursor = taskSettings.CaptureSettings.ScreenRecordShowCursor,
+                                AudioMuted = ScreenRecordManager.AudioMuted
                             };
 
                             Screenshot screenshot = TaskHelpers.GetScreenshot(taskSettings);
@@ -287,6 +332,16 @@ namespace ShareX
                             if (recordForm.Status == ScreenRecordingStatus.Aborted)
                             {
                                 abortRequested = true;
+                            }
+
+                            if (!abortRequested && recordForm.ConsumeRestartRequest())
+                            {
+                                FileHelpers.DeleteFile(path);
+                                FileHelpers.DeleteFile(concatPath);
+                                FileHelpers.DeleteFile(tempPath);
+                                recordForm.RecordResetEvent.Reset();
+                                restarted = true;
+                                continue;
                             }
                         }
 
@@ -360,6 +415,12 @@ namespace ShareX
                 abortRequested = false;
                 IsRecording = false;
             });
+        }
+
+        private static bool IsDesktopAudioSource(string audioSource)
+        {
+            return !string.IsNullOrEmpty(audioSource) && (audioSource.Contains("virtual-audio-capturer", StringComparison.OrdinalIgnoreCase) ||
+                audioSource.Contains("stereo mix", StringComparison.OrdinalIgnoreCase) || audioSource.Contains("loopback", StringComparison.OrdinalIgnoreCase));
         }
 
         private static void ScreenRecorder_RecordingStarted()

@@ -81,6 +81,8 @@ namespace ShareX
             niTray.Icon = ShareXResources.Icon;
             Text = Program.Title;
 
+            AddReplayBufferTrayMenu();
+
             UpdateTheme();
 
             this.CloseOnEscape();
@@ -365,9 +367,20 @@ namespace ShareX
                 Program.HotkeyManager.HotkeyTrigger += HandleHotkeys;
             }
 
+            bool hadReplayHotkeys = Program.Settings.ReplayBufferSettings != null && Program.Settings.ReplayBufferSettings.DefaultHotkeysAdded;
+            ReplayBufferManager.AddDefaultHotkeys(Program.HotkeysConfig.Hotkeys);
+
             Program.HotkeyManager.UpdateHotkeys(Program.HotkeysConfig.Hotkeys, !Program.IgnoreHotkeyWarning);
 
             DebugHelper.WriteLine("HotkeyManager started.");
+
+            if (!hadReplayHotkeys)
+            {
+                SettingManager.SaveHotkeysConfigAsync();
+                SettingManager.SaveApplicationConfigAsync();
+            }
+
+            ReplayBufferManager.AutoStart();
 
             if (Program.WatchFolderManager == null)
             {
@@ -979,7 +992,8 @@ namespace ShareX
 
         private void ConfigureAutoUpdate()
         {
-            Program.UpdateManager.AllowAutoUpdate = !SystemOptions.DisableUpdateCheck && Program.Settings.AutoCheckUpdate;
+            // Modded build: an official update would replace the modded files
+            Program.UpdateManager.AllowAutoUpdate = false;
             Program.UpdateManager.UpdateChannel = Program.Settings.UpdateChannel;
             Program.UpdateManager.ConfigureAutoUpdate();
         }
@@ -1883,6 +1897,34 @@ namespace ShareX
                 AfterTaskSettingsJobs();
                 SettingManager.SaveApplicationConfigAsync();
             }
+        }
+
+        public void OpenHotkeySettings()
+        {
+            tsbHotkeySettings_Click(this, EventArgs.Empty);
+        }
+
+        private void AddReplayBufferTrayMenu()
+        {
+            ToolStripMenuItem tsmiReplay = new ToolStripMenuItem("Replay buffer", Resources.clock);
+            ToolStripMenuItem tsmiToggle = new ToolStripMenuItem("Start", Resources.clock__arrow);
+            ToolStripMenuItem tsmiSave = new ToolStripMenuItem("Save replay", Resources.disk);
+            ToolStripMenuItem tsmiSettings = new ToolStripMenuItem("Settings...", Resources.gear);
+
+            tsmiToggle.Click += (sender, e) => ReplayBufferManager.Toggle();
+            tsmiSave.Click += (sender, e) => ReplayBufferManager.Save(null);
+            tsmiSettings.Click += (sender, e) => ReplayBufferManager.OpenSettings();
+
+            tsmiReplay.DropDownItems.AddRange(new ToolStripItem[] { tsmiToggle, tsmiSave, new ToolStripSeparator(), tsmiSettings });
+            tsmiReplay.DropDownOpening += (sender, e) =>
+            {
+                bool running = ReplayBufferManager.IsRunning;
+                tsmiToggle.Text = running ? "Stop" : "Start";
+                tsmiSave.Enabled = running;
+            };
+
+            int index = cmsTray.Items.IndexOf(tssTray1);
+            cmsTray.Items.Insert(index < 0 ? 0 : index, tsmiReplay);
         }
 
         private void tsbHotkeySettings_Click(object sender, EventArgs e)

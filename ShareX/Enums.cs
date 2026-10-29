@@ -258,6 +258,16 @@ namespace ShareX
         PauseScreenRecording,
         [Category(EnumExtensions.HotkeyType_Category_ScreenRecord)]
         AbortScreenRecording,
+        [Category(EnumExtensions.HotkeyType_Category_ScreenRecord)]
+        RestartScreenRecording,
+        [Category(EnumExtensions.HotkeyType_Category_ScreenRecord)]
+        ToggleScreenRecordingAudio,
+        [Category(EnumExtensions.HotkeyType_Category_ScreenRecord)]
+        ToggleReplayBuffer,
+        [Category(EnumExtensions.HotkeyType_Category_ScreenRecord)]
+        SaveReplayBuffer,
+        [Category(EnumExtensions.HotkeyType_Category_ScreenRecord)]
+        ReplayBufferSettings,
         // Tools
         [Category(EnumExtensions.HotkeyType_Category_Tools)]
         ColorPicker,
