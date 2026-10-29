@@ -469,12 +469,12 @@ namespace ShareX
 
             foreach (string device in audioDevices)
             {
-                args.Append("-f dshow -thread_queue_size 1024 -rtbufsize 64M -audio_buffer_size 50 ");
+                args.Append("-f dshow -rtbufsize 64M -audio_buffer_size 50 ");
                 args.Append($"-i audio={Helpers.EscapeCLIText(device)} ");
             }
 
             // ddagrab and gfxcapture both keep frames on the GPU, NVENC reads them without a copy to system memory
-            args.Append("-f lavfi -thread_queue_size 1024 ");
+            args.Append("-f lavfi ");
             args.Append($"-i {target.Input} ");
 
             int videoInput = audioDevices.Count;
