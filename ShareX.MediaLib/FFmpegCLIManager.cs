@@ -200,7 +200,7 @@ namespace ShareX.MediaLib
                 return null;
             }
 
-            Match matchVideoStream = Regex.Match(output, @"Stream #\d+:\d+(?:\(.+?\))?: Video: (?<Codec>.+?) \(.+?,.+?, (?<Width>\d+)x(?<Height>\d+).+?, (?<FPS>\d+(?:\.\d+)?) fps",
+            Match matchVideoStream = Regex.Match(output, @"Stream #\d+:\d+(?:\[0x[0-9a-f]+\])?(?:\(.+?\))?: Video: (?<Codec>.+?) \(.+?,.+?, (?<Width>\d+)x(?<Height>\d+).+?, (?<FPS>\d+(?:\.\d+)?) fps",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
             if (matchVideoStream.Success)
@@ -210,7 +210,7 @@ namespace ShareX.MediaLib
                 videoInfo.VideoFPS = double.Parse(matchVideoStream.Groups["FPS"].Value, CultureInfo.InvariantCulture);
             }
 
-            Match matchAudioStream = Regex.Match(output, @"Stream #\d+:\d+(?:\(.+?\))?: Audio: (?<Codec>.+?)(?: \(|,)",
+            Match matchAudioStream = Regex.Match(output, @"Stream #\d+:\d+(?:\[0x[0-9a-f]+\])?(?:\(.+?\))?: Audio: (?<Codec>.+?)(?: \(|,)",
                 RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
             if (matchAudioStream.Success)

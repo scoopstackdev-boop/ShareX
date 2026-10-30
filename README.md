@@ -19,6 +19,7 @@
   * PNG, JPG or animated GIF on replay clips and screen recordings, added when saving
   * Drag it anywhere on a preview of your screen, or snap to a corner
   * Scales with the captured area, so small selections get a smaller watermark
+  * Placed inside the recording, or fixed to a spot on the screen
 * Screen recording
   * Restart button and hotkey
   * Mute button and hotkey

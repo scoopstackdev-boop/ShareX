@@ -75,6 +75,7 @@ namespace ShareX
         private static bool compatibilityMode;
         private static ReplayBufferEncoder currentEncoder = ReplayBufferEncoder.NVIDIA;
         private static string currentFFmpegPath;
+        private static Rectangle currentCaptureArea;
 
         private class CaptureTarget
         {
@@ -82,6 +83,9 @@ namespace ShareX
             public int Width;
             public int Height;
             public bool NeedsWindowCapture;
+
+            // Screen coordinates of what is recorded
+            public Rectangle ScreenArea;
         }
 
         private static ReplayBufferSettings Settings
@@ -179,6 +183,7 @@ namespace ShareX
                 }
 
                 currentFFmpegPath = ffmpegPath;
+                currentCaptureArea = target.ScreenArea;
                 currentEncoder = ResolveEncoder(s, ffmpegPath);
 
                 keepSegments = (int)Math.Ceiling(Math.Max(s.BufferSeconds, s.ClipSeconds) / (double)SegmentSeconds) + 2;
@@ -349,6 +354,8 @@ namespace ShareX
             string outputPath = null;
             string error = null;
             string watermarkError = null;
+            string tempPath = null;
+            Rectangle captureArea = currentCaptureArea;
             string ffmpegPath = GetFFmpegPath(s);
             string outputFolder = string.IsNullOrWhiteSpace(s.OutputFolder) ? TaskHelpers.GetScreenshotsFolder(taskSettings, metadata) : FileHelpers.GetAbsolutePath(s.OutputFolder);
 
@@ -367,12 +374,15 @@ namespace ShareX
                         outputPath = Path.Combine(outputFolder, Path.GetFileNameWithoutExtension(fileName) + "_" + i + ".mp4");
                     }
 
+                    // Written to a temp file first so the clip only shows up in the folder once it is finished
+                    tempPath = Path.Combine(segmentFolder ?? Path.GetTempPath(), "save_" + Guid.NewGuid().ToString("N") + ".mp4");
+
                     listPath = Path.Combine(segmentFolder ?? Path.GetTempPath(), "save_" + Guid.NewGuid().ToString("N") + ".txt");
                     File.WriteAllText(listPath, string.Join("\n", segments.Select(x => x.Replace("\\", "/"))) + "\n");
 
                     // The segments are one continuous MPEG-TS stream split into files, so joining them
                     // byte for byte keeps the original timestamps and A/V sync. Stream copy only, no re-encode.
-                    string args = $"-hide_banner -loglevel error -nostdin -y -f mpegts -i \"concatf:{listPath.Replace("\\", "/")}\" -map 0 -c copy -bsf:a aac_adtstoasc -avoid_negative_ts make_zero -movflags +faststart \"{outputPath}\"";
+                    string args = $"-hide_banner -loglevel error -nostdin -y -f mpegts -i \"concatf:{listPath.Replace("\\", "/")}\" -map 0 -c copy -bsf:a aac_adtstoasc -avoid_negative_ts make_zero -movflags +faststart \"{tempPath}\"";
 
                     ProcessStartInfo psi = new ProcessStartInfo(ffmpegPath, args)
                     {
@@ -386,7 +396,7 @@ namespace ShareX
                         string stderr = p.StandardError.ReadToEnd();
                         p.WaitForExit();
 
-                        if (!File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
+                        if (!File.Exists(tempPath) || new FileInfo(tempPath).Length == 0)
                         {
                             error = string.IsNullOrWhiteSpace(stderr) ? "ffmpeg exit code " + p.ExitCode : stderr.Trim().Lines().LastOrDefault();
                             outputPath = null;
@@ -411,7 +421,25 @@ namespace ShareX
                 // After the segments are released, so the buffer keeps pruning during the re-encode
                 if (outputPath != null && WatermarkManager.ApplyToClips)
                 {
-                    watermarkError = WatermarkManager.Apply(outputPath);
+                    watermarkError = WatermarkManager.Apply(tempPath, captureArea);
+                }
+
+                if (outputPath != null)
+                {
+                    try
+                    {
+                        File.Move(tempPath, outputPath);
+                    }
+                    catch (Exception e)
+                    {
+                        error = e.Message;
+                        outputPath = null;
+                    }
+                }
+
+                if (outputPath == null && tempPath != null)
+                {
+                    FileHelpers.DeleteFile(tempPath);
                 }
             }).ContinueInCurrentContext(() =>
             {
@@ -850,6 +878,7 @@ namespace ShareX
 
                     target.Width = rect.Right - rect.Left;
                     target.Height = rect.Bottom - rect.Top;
+                    target.ScreenArea = new Rectangle(rect.Left, rect.Top, target.Width, target.Height);
                     target.NeedsWindowCapture = true;
                     // Windows Graphics Capture: only this window, even when covered, follows moves
                     target.Input = $"gfxcapture=hwnd={hwnd.ToInt64()}:max_framerate={fps}:capture_cursor={cursor}:width=-2:height=-2";
@@ -884,6 +913,7 @@ namespace ShareX
 
                     target.Width = area.Width;
                     target.Height = area.Height;
+                    target.ScreenArea = new Rectangle(area.X + screens[monitorIndex].Bounds.X, area.Y + screens[monitorIndex].Bounds.Y, area.Width, area.Height);
                     target.Input = $"ddagrab=output_idx={monitorIndex}:draw_mouse={(s.DrawCursor ? "true" : "false")}:framerate={fps}:offset_x={area.X}:offset_y={area.Y}:video_size={area.Width}x{area.Height}";
                     return null;
                 }
@@ -899,6 +929,7 @@ namespace ShareX
 
                     target.Width = screens[monitorIndex].Bounds.Width;
                     target.Height = screens[monitorIndex].Bounds.Height;
+                    target.ScreenArea = screens[monitorIndex].Bounds;
                     target.Input = $"ddagrab=output_idx={monitorIndex}:draw_mouse={(s.DrawCursor ? "true" : "false")}:framerate={fps}";
                     return null;
                 }

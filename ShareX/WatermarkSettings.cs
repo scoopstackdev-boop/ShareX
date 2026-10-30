@@ -26,13 +26,22 @@ namespace ShareX
         Custom
     }
 
+    public enum WatermarkAnchor
+    {
+        // Placed inside whatever was recorded, always visible
+        Recording,
+        // Placed at a fixed spot on the screen, only visible when that spot was recorded
+        Screen
+    }
+
     public class VideoWatermarkSettings
     {
         public bool Enabled { get; set; } = false;
         public string Image { get; set; } = "";
         public WatermarkPosition Position { get; set; } = WatermarkPosition.BottomRight;
+        public WatermarkAnchor Anchor { get; set; } = WatermarkAnchor.Recording;
 
-        // Percentage of the video width, measured against the height for tall captures, so small and narrow captures stay in proportion
+        // Percentage of the video size (the width on a 16:9 video), so small, wide and tall captures stay in proportion
         public int Size { get; set; } = 15;
         public int Opacity { get; set; } = 85;
 

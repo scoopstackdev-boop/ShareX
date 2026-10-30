@@ -375,7 +375,7 @@ namespace ShareX
                 {
                     recordForm?.ChangeState(ScreenRecordState.Encoding);
 
-                    string watermarkError = WatermarkManager.Apply(path);
+                    string watermarkError = WatermarkManager.Apply(path, captureRectangle);
 
                     if (watermarkError != null)
                     {

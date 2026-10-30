@@ -37,7 +37,7 @@ namespace ShareX
 
         private CheckBox cbEnabled, cbClips, cbRecordings;
         private TextBox txtImage;
-        private ComboBox cbPosition;
+        private ComboBox cbPosition, cbAnchor;
         private NumericUpDown nudSize, nudOpacity, nudMargin;
         private Panel pPreview;
         private Label lblStatus;
@@ -99,6 +99,10 @@ namespace ShareX
             cbPosition.SelectedIndexChanged += (s, e) => pPreview?.Invalidate();
             AddRow(table, "Position", cbPosition);
 
+            cbAnchor = new ComboBox() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+            cbAnchor.Items.AddRange(new object[] { "Inside the recording (always visible)", "Fixed on screen (only if recorded)" });
+            AddRow(table, "Placement", cbAnchor);
+
             nudSize = AddNumeric(table, "Size (%)", 1, 100, 1);
             nudOpacity = AddNumeric(table, "Opacity (%)", 5, 100, 5);
             nudMargin = AddNumeric(table, "Margin (%)", 0, 20, 1);
@@ -122,7 +126,7 @@ namespace ShareX
             pPreview.MouseUp += (s, e) => dragging = false;
             typeof(Panel).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.SetValue(pPreview, true);
             table.Controls.Add(pPreview, 2, 1);
-            table.SetRowSpan(pPreview, 5);
+            table.SetRowSpan(pPreview, 6);
 
             FlowLayoutPanel buttons = new FlowLayoutPanel() { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 14, 0, 0) };
             Button btnCancel = new Button() { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true, MinimumSize = new Size(90, 0) };
@@ -181,6 +185,7 @@ namespace ShareX
             cbEnabled.Checked = settings.Enabled;
             txtImage.Text = settings.Image;
             cbPosition.SelectedIndex = (int)settings.Position;
+            cbAnchor.SelectedIndex = (int)settings.Anchor;
             nudSize.Value = Clamp(settings.Size, nudSize);
             nudOpacity.Value = Clamp(settings.Opacity, nudOpacity);
             nudMargin.Value = Clamp(settings.Margin, nudMargin);
@@ -196,6 +201,7 @@ namespace ShareX
             settings.Enabled = cbEnabled.Checked;
             settings.Image = txtImage.Text.Trim();
             settings.Position = (WatermarkPosition)Math.Max(0, cbPosition.SelectedIndex);
+            settings.Anchor = (WatermarkAnchor)Math.Max(0, cbAnchor.SelectedIndex);
             settings.Size = (int)nudSize.Value;
             settings.Opacity = (int)nudOpacity.Value;
             settings.Margin = (int)nudMargin.Value;
@@ -212,7 +218,7 @@ namespace ShareX
         {
             bool enabled = cbEnabled.Checked;
 
-            foreach (Control c in new Control[] { txtImage, cbPosition, nudSize, nudOpacity, nudMargin, cbClips, cbRecordings })
+            foreach (Control c in new Control[] { txtImage, cbPosition, cbAnchor, nudSize, nudOpacity, nudMargin, cbClips, cbRecordings })
             {
                 c.Enabled = enabled;
             }

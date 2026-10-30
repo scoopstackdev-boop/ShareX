@@ -91,7 +91,7 @@ namespace ShareX
         }
 
         // Re-encodes the video with the watermark on top and replaces the file. Returns null on success, otherwise the reason.
-        public static string Apply(string videoPath)
+        public static string Apply(string videoPath, Rectangle captureArea = default)
         {
             VideoWatermarkSettings s = Settings;
 
@@ -115,8 +115,8 @@ namespace ShareX
                 return "ffmpeg.exe not found: " + ffmpegPath;
             }
 
-            int width = 1920;
-            int height = 1080;
+            int width = 0;
+            int height = 0;
             int bitrate = 12000;
 
             try
@@ -138,6 +138,19 @@ namespace ShareX
                 DebugHelper.WriteException(e);
             }
 
+            if (width <= 0 || height <= 0)
+            {
+                // Guessing the size would place the watermark outside small recordings
+                Size probed = ProbeVideoSize(ffmpegPath, videoPath);
+                width = probed.Width;
+                height = probed.Height;
+            }
+
+            if (width <= 0 || height <= 0)
+            {
+                return "video size unknown";
+            }
+
             Size imageSize;
 
             try
@@ -152,7 +165,30 @@ namespace ShareX
                 return "image unreadable: " + e.Message;
             }
 
-            Rectangle rect = GetWatermarkRect(s, new Size(width, height), imageSize);
+            Rectangle rect;
+
+            if (s.Anchor == WatermarkAnchor.Screen && captureArea.Width > 0 && captureArea.Height > 0)
+            {
+                // Place it on the screen the capture came from, then shift into the video's coordinates
+                Rectangle screen = Screen.FromRectangle(captureArea).Bounds;
+                Rectangle onScreen = GetWatermarkRect(s, screen.Size, imageSize);
+                onScreen.Offset(screen.Location);
+
+                double scaleX = (double)width / captureArea.Width;
+                double scaleY = (double)height / captureArea.Height;
+                rect = new Rectangle((int)Math.Round((onScreen.X - captureArea.X) * scaleX), (int)Math.Round((onScreen.Y - captureArea.Y) * scaleY),
+                    Math.Max(2, (int)(onScreen.Width * scaleX) / 2 * 2), Math.Max(2, (int)(onScreen.Height * scaleY) / 2 * 2));
+
+                if (!rect.IntersectsWith(new Rectangle(0, 0, width, height)))
+                {
+                    // That spot of the screen was not recorded, nothing to add
+                    return null;
+                }
+            }
+            else
+            {
+                rect = GetWatermarkRect(s, new Size(width, height), imageSize);
+            }
             string opacity = (Math.Max(5, Math.Min(100, s.Opacity)) / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
             bool animated = Path.GetExtension(image).Equals(".gif", StringComparison.OrdinalIgnoreCase);
 
@@ -186,12 +222,46 @@ namespace ShareX
             return null;
         }
 
+        // Fallback reader for the video size, independent of the ffmpeg output format
+        private static Size ProbeVideoSize(string ffmpegPath, string videoPath)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(ffmpegPath, $"-hide_banner -nostdin -i \"{videoPath}\"")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using (Process p = Process.Start(psi))
+                {
+                    string output = p.StandardError.ReadToEnd();
+                    p.WaitForExit(5000);
+
+                    System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(output, @"Video: .*?, (\d{2,5})x(\d{2,5})");
+
+                    if (match.Success)
+                    {
+                        return new Size(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value));
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                DebugHelper.WriteException(e);
+            }
+
+            return Size.Empty;
+        }
+
         // Watermark placement in video pixels, shared by the encoder and the settings preview
         public static Rectangle GetWatermarkRect(VideoWatermarkSettings s, Size video, Size image)
         {
             int videoWidth = Math.Max(16, video.Width);
             int videoHeight = Math.Max(16, video.Height);
-            double baseSize = Math.Min(videoWidth, videoHeight * 16.0 / 9.0);
+            // Sized by area: equals the width on a 16:9 video, and stays proportional on wide strips and tall windows
+            double baseSize = Math.Sqrt((double)videoWidth * videoHeight * 16.0 / 9.0);
 
             double width = baseSize * Math.Max(1, Math.Min(100, s.Size)) / 100.0;
             double height = width * Math.Max(1, image.Height) / Math.Max(1, image.Width);
