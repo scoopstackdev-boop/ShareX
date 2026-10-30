@@ -1,0 +1,33 @@
+name: Release notes
+
+on:
+  push:
+    branches:
+      - mod
+    paths:
+      - ".github/release-notes/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notes:
+    name: Update release notes
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Update releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for file in .github/release-notes/*.md; do
+            tag=$(basename "$file" .md)
+            if gh release view "$tag" > /dev/null 2>&1; then
+              gh release edit "$tag" --notes-file "$file" --title "ShareX $tag"
+              echo "updated $tag"
+            fi
+          done

@@ -1,9 +1,7 @@
-## Changes
+- watermark wasnt showing on region recordings, fixed
+- video thumbnailer/converter were reading video sizes wrong too, fixed
+- watermark scales better on weird sizes now
+- new placement option: inside the recording, or pinned to a spot on your screen
+- clips only show up in the folder once theyre done saving
 
-* Fixed watermark missing on region recordings: the video size was misread with current FFmpeg, so the watermark was placed as if the video was 1920x1080
-* Fixed the same size misread in ShareX's video tools (thumbnailer, converter)
-* Watermark size scales with the recorded area, so wide strips and tall windows stay in proportion
-* New Placement setting: inside the recording (always visible) or fixed on screen (only shows when that spot is recorded)
-* Replay clips appear in the folder only once they are finished, watermark included
-
-Installs over an existing ShareX install. Settings are kept.
+just install over your current sharex, settings stay
