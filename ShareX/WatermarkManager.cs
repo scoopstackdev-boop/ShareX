@@ -18,6 +18,7 @@ using ShareX.HelpersLib;
 using ShareX.MediaLib;
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -115,6 +116,7 @@ namespace ShareX
             }
 
             int width = 1920;
+            int height = 1080;
             int bitrate = 12000;
 
             try
@@ -126,6 +128,7 @@ namespace ShareX
                     if (info != null)
                     {
                         if (info.VideoResolution.Width > 0) width = info.VideoResolution.Width;
+                        if (info.VideoResolution.Height > 0) height = info.VideoResolution.Height;
                         if (info.Bitrate > 0) bitrate = Math.Max(2000, info.Bitrate);
                     }
                 }
@@ -135,31 +138,33 @@ namespace ShareX
                 DebugHelper.WriteException(e);
             }
 
-            int size = Math.Max(1, Math.Min(100, s.Size));
-            int watermarkWidth = Math.Max(16, (int)(width * size / 100.0) / 2 * 2);
-            string opacity = (Math.Max(5, Math.Min(100, s.Opacity)) / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
-            int m = (int)(width * Math.Max(0, Math.Min(20, s.Margin)) / 100.0);
-            bool animated = Path.GetExtension(image).Equals(".gif", StringComparison.OrdinalIgnoreCase);
+            Size imageSize;
 
-            string position;
-            switch (s.Position)
+            try
             {
-                case WatermarkPosition.TopLeft: position = $"{m}:{m}"; break;
-                case WatermarkPosition.TopRight: position = $"W-w-{m}:{m}"; break;
-                case WatermarkPosition.BottomLeft: position = $"{m}:H-h-{m}"; break;
-                case WatermarkPosition.Center: position = "(W-w)/2:(H-h)/2"; break;
-                default: position = $"W-w-{m}:H-h-{m}"; break;
+                using (Image img = Image.FromFile(image))
+                {
+                    imageSize = img.Size;
+                }
             }
+            catch (Exception e)
+            {
+                return "image unreadable: " + e.Message;
+            }
+
+            Rectangle rect = GetWatermarkRect(s, new Size(width, height), imageSize);
+            string opacity = (Math.Max(5, Math.Min(100, s.Opacity)) / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
+            bool animated = Path.GetExtension(image).Equals(".gif", StringComparison.OrdinalIgnoreCase);
 
             string tempPath = Path.Combine(Path.GetDirectoryName(videoPath), Path.GetFileNameWithoutExtension(videoPath) + "-watermark" + Path.GetExtension(videoPath));
             ReplayBufferEncoder encoder = ReplayBufferManager.ResolveEncoder(replaySettings, ffmpegPath);
 
-            string result = Run(ffmpegPath, videoPath, image, animated, watermarkWidth, opacity, position, bitrate, encoder, tempPath);
+            string result = Run(ffmpegPath, videoPath, image, animated, rect, opacity, bitrate, encoder, tempPath);
 
             if (result != null && encoder != ReplayBufferEncoder.CPU)
             {
                 DebugHelper.WriteLine("Watermark with " + ReplayBufferManager.GetEncoderName(encoder) + " failed: " + result);
-                result = Run(ffmpegPath, videoPath, image, animated, watermarkWidth, opacity, position, bitrate, ReplayBufferEncoder.CPU, tempPath);
+                result = Run(ffmpegPath, videoPath, image, animated, rect, opacity, bitrate, ReplayBufferEncoder.CPU, tempPath);
             }
 
             if (result != null)
@@ -181,7 +186,47 @@ namespace ShareX
             return null;
         }
 
-        private static string Run(string ffmpegPath, string videoPath, string image, bool animated, int watermarkWidth, string opacity, string position,
+        // Watermark placement in video pixels, shared by the encoder and the settings preview
+        public static Rectangle GetWatermarkRect(VideoWatermarkSettings s, Size video, Size image)
+        {
+            int videoWidth = Math.Max(16, video.Width);
+            int videoHeight = Math.Max(16, video.Height);
+            double baseSize = Math.Min(videoWidth, videoHeight * 16.0 / 9.0);
+
+            double width = baseSize * Math.Max(1, Math.Min(100, s.Size)) / 100.0;
+            double height = width * Math.Max(1, image.Height) / Math.Max(1, image.Width);
+            int margin = (int)(baseSize * Math.Max(0, Math.Min(20, s.Margin)) / 100.0);
+
+            // Never larger than the area inside the margin
+            double maxWidth = Math.Max(4, videoWidth - margin * 2);
+            double maxHeight = Math.Max(4, videoHeight - margin * 2);
+            double fit = Math.Min(1, Math.Min(maxWidth / width, maxHeight / height));
+            int w = Math.Max(2, (int)(width * fit) / 2 * 2);
+            int h = Math.Max(2, (int)(height * fit) / 2 * 2);
+
+            int left = margin;
+            int top = margin;
+            int right = Math.Max(margin, videoWidth - w - margin);
+            int bottom = Math.Max(margin, videoHeight - h - margin);
+            int x, y;
+
+            switch (s.Position)
+            {
+                case WatermarkPosition.TopLeft: x = left; y = top; break;
+                case WatermarkPosition.TopRight: x = right; y = top; break;
+                case WatermarkPosition.BottomLeft: x = left; y = bottom; break;
+                case WatermarkPosition.Center: x = (videoWidth - w) / 2; y = (videoHeight - h) / 2; break;
+                case WatermarkPosition.Custom:
+                    x = left + (int)((right - left) * Math.Max(0, Math.Min(100, s.CustomX)) / 100.0);
+                    y = top + (int)((bottom - top) * Math.Max(0, Math.Min(100, s.CustomY)) / 100.0);
+                    break;
+                default: x = right; y = bottom; break;
+            }
+
+            return new Rectangle(x, y, w, h);
+        }
+
+        private static string Run(string ffmpegPath, string videoPath, string image, bool animated, Rectangle rect, string opacity,
             int bitrate, ReplayBufferEncoder encoder, string outputPath)
         {
             string pixelFormat = encoder == ReplayBufferEncoder.Intel ? "nv12" : "yuv420p";
@@ -198,7 +243,7 @@ namespace ShareX
             // An animated GIF loops for the whole video, a still image is held after its single frame
             string imageInput = animated ? $"-ignore_loop 0 -i \"{image}\"" : $"-i \"{image}\"";
             string shortest = animated ? ":shortest=1" : "";
-            string filter = $"[1:v]scale={watermarkWidth}:-2,format=rgba,colorchannelmixer=aa={opacity}[wm];[0:v][wm]overlay={position}{shortest},format={pixelFormat}[v]";
+            string filter = $"[1:v]scale={rect.Width}:{rect.Height},format=rgba,colorchannelmixer=aa={opacity}[wm];[0:v][wm]overlay={rect.X}:{rect.Y}{shortest},format={pixelFormat}[v]";
 
             string args = $"-hide_banner -loglevel error -nostdin -y -i \"{videoPath}\" {imageInput} -filter_complex \"{filter}\" " +
                 $"-map \"[v]\" -map 0:a? {videoEncoder} -b:v {bitrate}k -maxrate {bitrate * 3 / 2}k -bufsize {bitrate * 2}k -c:a copy -movflags +faststart \"{outputPath}\"";

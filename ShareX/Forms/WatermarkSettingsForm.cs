@@ -27,7 +27,11 @@ namespace ShareX
     public class WatermarkSettingsForm : Form
     {
         private const int PreviewWidth = 384;
-        private const int PreviewHeight = 216;
+        private readonly int PreviewHeight;
+        private readonly Size screenSize;
+        private Bitmap screenshot;
+        private double customX, customY;
+        private bool dragging;
 
         private readonly VideoWatermarkSettings settings;
 
@@ -43,6 +47,12 @@ namespace ShareX
         public WatermarkSettingsForm(VideoWatermarkSettings settings)
         {
             this.settings = settings;
+
+            // The preview shows the real screen, so placement matches what gets recorded
+            Rectangle screen = Screen.FromPoint(Cursor.Position).Bounds;
+            screenSize = screen.Size;
+            PreviewHeight = Math.Max(100, (int)(PreviewWidth * (double)screen.Height / Math.Max(1, screen.Width)));
+            screenshot = CaptureScreen(screen, new Size(PreviewWidth, PreviewHeight));
 
             Text = "ShareX - Watermark";
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -85,13 +95,13 @@ namespace ShareX
             AddRow(table, "Image", txtImage, btnImage);
 
             cbPosition = new ComboBox() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
-            cbPosition.Items.AddRange(new object[] { "Top left", "Top right", "Bottom left", "Bottom right", "Center" });
+            cbPosition.Items.AddRange(new object[] { "Top left", "Top right", "Bottom left", "Bottom right", "Center", "Custom (drag in preview)" });
             cbPosition.SelectedIndexChanged += (s, e) => pPreview?.Invalidate();
             AddRow(table, "Position", cbPosition);
 
-            nudSize = AddNumeric(table, "Size (% of width)", 1, 100, 1);
+            nudSize = AddNumeric(table, "Size (%)", 1, 100, 1);
             nudOpacity = AddNumeric(table, "Opacity (%)", 5, 100, 5);
-            nudMargin = AddNumeric(table, "Margin (% of width)", 0, 20, 1);
+            nudMargin = AddNumeric(table, "Margin (%)", 0, 20, 1);
 
             Label lblApply = new Label() { Text = "Apply to", AutoSize = true, Font = new Font(Font, FontStyle.Bold), Margin = new Padding(3, 14, 3, 4) };
             AddFull(table, lblApply);
@@ -101,11 +111,15 @@ namespace ShareX
             AddFull(table, cbRecordings);
 
             lblStatus = new Label() { AutoSize = true, MaximumSize = new Size(PreviewWidth + 420, 0), ForeColor = SystemColors.GrayText, Margin = new Padding(3, 10, 3, 3),
-                Text = "Added when the video is saved, which takes a few extra seconds. GIF recordings and screenshots are not affected." };
+                Text = "Drag the watermark in the preview to place it. Size follows the captured area, so small selections get a smaller watermark. Added when the video is saved; GIF recordings and screenshots are not affected." };
             AddFull(table, lblStatus);
 
             pPreview = new Panel() { Size = new Size(PreviewWidth, PreviewHeight), Margin = new Padding(16, 3, 3, 3), BackColor = Color.FromArgb(40, 44, 52) };
             pPreview.Paint += Preview_Paint;
+            pPreview.Cursor = Cursors.Hand;
+            pPreview.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left && cbEnabled.Checked) { dragging = true; MoveWatermark(e.Location); } };
+            pPreview.MouseMove += (s, e) => { if (dragging) MoveWatermark(e.Location); };
+            pPreview.MouseUp += (s, e) => dragging = false;
             typeof(Panel).GetProperty("DoubleBuffered", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.SetValue(pPreview, true);
             table.Controls.Add(pPreview, 2, 1);
             table.SetRowSpan(pPreview, 5);
@@ -172,6 +186,8 @@ namespace ShareX
             nudMargin.Value = Clamp(settings.Margin, nudMargin);
             cbClips.Checked = settings.ApplyToClips;
             cbRecordings.Checked = settings.ApplyToRecordings;
+            customX = settings.CustomX;
+            customY = settings.CustomY;
             UpdateEnabled();
         }
 
@@ -185,6 +201,8 @@ namespace ShareX
             settings.Margin = (int)nudMargin.Value;
             settings.ApplyToClips = cbClips.Checked;
             settings.ApplyToRecordings = cbRecordings.Checked;
+            settings.CustomX = customX;
+            settings.CustomY = customY;
 
             DialogResult = DialogResult.OK;
             Close();
@@ -237,15 +255,98 @@ namespace ShareX
             return previewImage;
         }
 
+        private static Bitmap CaptureScreen(Rectangle bounds, Size size)
+        {
+            try
+            {
+                using (Bitmap full = new Bitmap(bounds.Width, bounds.Height))
+                {
+                    using (Graphics g = Graphics.FromImage(full))
+                    {
+                        g.CopyFromScreen(bounds.Location, Point.Empty, bounds.Size);
+                    }
+
+                    Bitmap small = new Bitmap(size.Width, size.Height);
+
+                    using (Graphics g = Graphics.FromImage(small))
+                    {
+                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                        g.DrawImage(full, new Rectangle(Point.Empty, size));
+                    }
+
+                    return small;
+                }
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private VideoWatermarkSettings GetCurrentSettings()
+        {
+            return new VideoWatermarkSettings()
+            {
+                Position = (WatermarkPosition)Math.Max(0, cbPosition.SelectedIndex),
+                Size = (int)nudSize.Value,
+                Margin = (int)nudMargin.Value,
+                CustomX = customX,
+                CustomY = customY
+            };
+        }
+
+        private Rectangle GetPreviewRect(Bitmap img)
+        {
+            Rectangle rect = WatermarkManager.GetWatermarkRect(GetCurrentSettings(), screenSize, img.Size);
+            double scale = (double)PreviewWidth / Math.Max(1, screenSize.Width);
+            return new Rectangle((int)(rect.X * scale), (int)(rect.Y * scale), Math.Max(2, (int)(rect.Width * scale)), Math.Max(2, (int)(rect.Height * scale)));
+        }
+
+        // Centers the watermark on the cursor, converted to 0-100 within the margins
+        private void MoveWatermark(Point location)
+        {
+            Bitmap img = GetPreviewImage();
+            if (img == null) return;
+
+            VideoWatermarkSettings current = GetCurrentSettings();
+            current.Position = WatermarkPosition.TopLeft;
+            Rectangle topLeft = WatermarkManager.GetWatermarkRect(current, screenSize, img.Size);
+            current.Position = WatermarkPosition.BottomRight;
+            Rectangle bottomRight = WatermarkManager.GetWatermarkRect(current, screenSize, img.Size);
+
+            double scale = (double)Math.Max(1, screenSize.Width) / PreviewWidth;
+            double x = location.X * scale - topLeft.Width / 2.0;
+            double y = location.Y * scale - topLeft.Height / 2.0;
+            double rangeX = Math.Max(1, bottomRight.X - topLeft.X);
+            double rangeY = Math.Max(1, bottomRight.Y - topLeft.Y);
+
+            customX = Math.Max(0, Math.Min(100, (x - topLeft.X) / rangeX * 100));
+            customY = Math.Max(0, Math.Min(100, (y - topLeft.Y) / rangeY * 100));
+
+            if (cbPosition.SelectedIndex != (int)WatermarkPosition.Custom)
+            {
+                cbPosition.SelectedIndex = (int)WatermarkPosition.Custom;
+            }
+
+            pPreview.Invalidate();
+        }
+
         private void Preview_Paint(object sender, PaintEventArgs e)
         {
             Graphics g = e.Graphics;
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
-            using (Brush text = new SolidBrush(Color.FromArgb(150, 160, 170)))
-            using (StringFormat center = new StringFormat() { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+            if (screenshot != null)
             {
-                g.DrawString("Video preview", Font, text, new RectangleF(0, 0, PreviewWidth, PreviewHeight), center);
+                g.DrawImage(screenshot, 0, 0, PreviewWidth, PreviewHeight);
+            }
+            else
+            {
+                using (Brush text = new SolidBrush(Color.FromArgb(150, 160, 170)))
+                using (StringFormat center = new StringFormat() { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                {
+                    g.DrawString("Preview", Font, text, new RectangleF(0, 0, PreviewWidth, PreviewHeight), center);
+                }
             }
 
             Bitmap img = GetPreviewImage();
@@ -255,25 +356,21 @@ namespace ShareX
                 return;
             }
 
-            int width = Math.Max(4, (int)(PreviewWidth * (double)nudSize.Value / 100));
-            int height = Math.Max(1, (int)(width * (double)img.Height / img.Width));
-            int margin = (int)(PreviewWidth * (double)nudMargin.Value / 100);
-            int x, y;
-
-            switch ((WatermarkPosition)Math.Max(0, cbPosition.SelectedIndex))
-            {
-                case WatermarkPosition.TopLeft: x = margin; y = margin; break;
-                case WatermarkPosition.TopRight: x = PreviewWidth - width - margin; y = margin; break;
-                case WatermarkPosition.BottomLeft: x = margin; y = PreviewHeight - height - margin; break;
-                case WatermarkPosition.Center: x = (PreviewWidth - width) / 2; y = (PreviewHeight - height) / 2; break;
-                default: x = PreviewWidth - width - margin; y = PreviewHeight - height - margin; break;
-            }
+            Rectangle rect = GetPreviewRect(img);
 
             using (ImageAttributes attributes = new ImageAttributes())
             {
                 ColorMatrix matrix = new ColorMatrix() { Matrix33 = (float)nudOpacity.Value / 100f };
                 attributes.SetColorMatrix(matrix);
-                g.DrawImage(img, new Rectangle(x, y, width, height), 0, 0, img.Width, img.Height, GraphicsUnit.Pixel, attributes);
+                g.DrawImage(img, rect, 0, 0, img.Width, img.Height, GraphicsUnit.Pixel, attributes);
+            }
+
+            if (dragging || cbPosition.SelectedIndex == (int)WatermarkPosition.Custom)
+            {
+                using (Pen pen = new Pen(Color.FromArgb(200, 255, 255, 255)) { DashStyle = DashStyle.Dash })
+                {
+                    g.DrawRectangle(pen, rect);
+                }
             }
         }
 
@@ -282,6 +379,7 @@ namespace ShareX
             if (disposing)
             {
                 previewImage?.Dispose();
+                screenshot?.Dispose();
             }
 
             base.Dispose(disposing);

@@ -1,8 +1,7 @@
 ## Changes
 
-* Watermark is its own feature: Watermark... in the main window and tray menu
-* Live preview of the watermark position, size and opacity
-* Choose what it applies to: replay buffer clips, screen recordings, or both
-* Watermark settings from 20.2.0.5 are carried over
+* Watermark size follows the captured area, so small and narrow selections get a proportionally smaller watermark that always fits
+* Watermark can be dragged anywhere on a preview of your screen (Custom position)
+* Margin uses the same scale as size
 
 Installs over an existing ShareX install. Settings are kept.

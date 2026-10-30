@@ -17,7 +17,8 @@
   * Clips can upload to any ShareX destination or custom uploader, separate from screenshots
 * Watermark
   * PNG, JPG or animated GIF on replay clips and screen recordings, added when saving
-  * Position, size, opacity and margin, with a live preview
+  * Drag it anywhere on a preview of your screen, or snap to a corner
+  * Scales with the captured area, so small selections get a smaller watermark
 * Screen recording
   * Restart button and hotkey
   * Mute button and hotkey

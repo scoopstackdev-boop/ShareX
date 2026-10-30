@@ -22,7 +22,8 @@ namespace ShareX
         TopRight,
         BottomLeft,
         BottomRight,
-        Center
+        Center,
+        Custom
     }
 
     public class VideoWatermarkSettings
@@ -31,12 +32,16 @@ namespace ShareX
         public string Image { get; set; } = "";
         public WatermarkPosition Position { get; set; } = WatermarkPosition.BottomRight;
 
-        // Width as a percentage of the video width
+        // Percentage of the video width, measured against the height for tall captures, so small and narrow captures stay in proportion
         public int Size { get; set; } = 15;
         public int Opacity { get; set; } = 85;
 
-        // Distance from the edge as a percentage of the video width
+        // Distance from the edge, same unit as Size
         public int Margin { get; set; } = 2;
+
+        // Custom position: 0 = left/top edge, 100 = right/bottom edge, inside the margin
+        public double CustomX { get; set; } = 100;
+        public double CustomY { get; set; } = 100;
 
         public bool ApplyToClips { get; set; } = true;
         public bool ApplyToRecordings { get; set; } = true;
