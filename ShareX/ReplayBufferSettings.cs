@@ -50,15 +50,6 @@ namespace ShareX
         Destination
     }
 
-    public enum WatermarkPosition
-    {
-        TopLeft,
-        TopRight,
-        BottomLeft,
-        BottomRight,
-        Center
-    }
-
     public enum ReplayBufferCaptureMode
     {
         Monitor,
@@ -121,6 +112,7 @@ namespace ShareX
         public int UploadCustomUploaderIndex { get; set; } = 0;
         public bool StartWithShareX { get; set; } = false;
 
+        // Moved to VideoWatermarkSettings, only read once to carry settings over
         public bool WatermarkEnabled { get; set; } = false;
         public string WatermarkImage { get; set; } = "";
         public WatermarkPosition WatermarkPosition { get; set; } = WatermarkPosition.BottomRight;

@@ -300,6 +300,8 @@ namespace ShareX
 
         public ReplayBufferSettings ReplayBufferSettings = new ReplayBufferSettings();
 
+        public VideoWatermarkSettings VideoWatermarkSettings = new VideoWatermarkSettings();
+
         #endregion Replay buffer
 
         #region Actions toolbar

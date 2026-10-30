@@ -370,12 +370,12 @@ namespace ShareX
                     path = ProcessTwoPassEncoding(path, metadata, taskSettings);
                 }
 
-                if (!abortRequested && File.Exists(path) && ReplayBufferManager.WatermarkRecordings &&
+                if (!abortRequested && File.Exists(path) && WatermarkManager.ApplyToRecordings &&
                     Path.GetExtension(path).Equals(".mp4", StringComparison.OrdinalIgnoreCase))
                 {
                     recordForm?.ChangeState(ScreenRecordState.Encoding);
 
-                    string watermarkError = ReplayBufferManager.ApplyWatermark(path);
+                    string watermarkError = WatermarkManager.Apply(path);
 
                     if (watermarkError != null)
                     {

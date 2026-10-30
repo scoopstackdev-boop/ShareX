@@ -1908,8 +1908,13 @@ namespace ShareX
             ToolStripMenuItem tsmiReplay = new ToolStripMenuItem("Replay buffer", Resources.clock);
             FillReplayBufferMenu(tsmiReplay);
 
+            ToolStripMenuItem tsmiWatermark = new ToolStripMenuItem("Watermark...", Resources.layer_transparent);
+            tsmiWatermark.Click += (sender, e) => WatermarkManager.OpenSettings();
+
             int index = cmsTray.Items.IndexOf(tssTray1);
-            cmsTray.Items.Insert(index < 0 ? 0 : index, tsmiReplay);
+            if (index < 0) index = 0;
+            cmsTray.Items.Insert(index, tsmiReplay);
+            cmsTray.Items.Insert(index + 1, tsmiWatermark);
 
             // Same menu in the main window, next to Tools
             ToolStripDropDownButton tsddbReplay = new ToolStripDropDownButton("Replay buffer", Resources.clock)
@@ -1924,8 +1929,21 @@ namespace ShareX
             };
             FillReplayBufferMenu(tsddbReplay);
 
+            ToolStripButton tsbWatermark = new ToolStripButton("Watermark...", Resources.layer_transparent)
+            {
+                ImageAlign = tsddbTools.ImageAlign,
+                TextAlign = tsddbTools.TextAlign,
+                TextImageRelation = tsddbTools.TextImageRelation,
+                Padding = tsddbTools.Padding,
+                Margin = tsddbTools.Margin,
+                AutoToolTip = false
+            };
+            tsbWatermark.Click += (sender, e) => WatermarkManager.OpenSettings();
+
             int mainIndex = tsMain.Items.IndexOf(tsddbTools);
-            tsMain.Items.Insert(mainIndex < 0 ? tsMain.Items.Count : mainIndex + 1, tsddbReplay);
+            mainIndex = mainIndex < 0 ? tsMain.Items.Count : mainIndex + 1;
+            tsMain.Items.Insert(mainIndex, tsddbReplay);
+            tsMain.Items.Insert(mainIndex + 1, tsbWatermark);
         }
 
         private static void FillReplayBufferMenu(ToolStripDropDownItem tsmiReplay)
