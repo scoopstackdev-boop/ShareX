@@ -33,7 +33,9 @@ namespace ShareX
         private const string NoDevice = "None";
 
         private static readonly int[] LengthPresets = { 30, 60, 120, 180, 300, 600, 900, 1800 };
-        private static readonly int[] FPSPresets = { 30, 60, 120, 144 };
+        private static readonly int[] FPSPresets = { 0, 30, 60, 120, 144 };
+        private static readonly int[] SizePresets = { 0, 10, 25, 50, 100, 500 };
+        private static readonly string[] DesktopModes = { "All PC sound", "All except these apps", "Only these apps" };
 
         private readonly ReplayBufferSettings settings;
         private Rectangle area;
@@ -46,7 +48,9 @@ namespace ShareX
         private TextBox txtOutput, txtBuffer, txtFFmpeg;
         private Label lblArea, lblModeNote, lblQualityInfo, lblAudioNote, lblCustomNote;
         private Control[] monitorRow, appRow, areaRow, destinationRow, customUploaderRow;
-        private ComboBox cbEncoder, cbUpload, cbDestination, cbCustomUploader;
+        private ComboBox cbEncoder, cbUpload, cbDestination, cbCustomUploader, cbMaxSize;
+        private TextBox txtAudioApps;
+        private Control[] audioAppsRow;
         private readonly FileDestination[] destinations = (FileDestination[])Enum.GetValues(typeof(FileDestination));
 
         private List<KeyValuePair<string, string>> openApps = new List<KeyValuePair<string, string>>();
@@ -129,12 +133,23 @@ namespace ShareX
             basic.Controls.Add(lblQualityInfo, 2, basic.GetRow(cbQuality));
             cbQuality.SelectedIndexChanged += (s, e) => { UpdateCustomEnabled(); UpdateInfo(); };
 
-            cbFPS = AddCombo(basic, "FPS", FPSPresets.Select(x => x.ToString()).ToArray(), out _);
+            int refresh = ReplayBufferManager.GetRefreshRate(Screen.FromPoint(Cursor.Position));
+            int matched = ReplayBufferManager.GetFPS(new ReplayBufferSettings() { FPS = 0 });
+            cbFPS = AddCombo(basic, "FPS", FPSPresets.Select(x => x == 0 ? $"Match monitor ({matched} fps on {refresh} Hz)" : x.ToString()).ToArray(), out _);
             cbFPS.SelectedIndexChanged += (s, e) => UpdateInfo();
+
+            cbMaxSize = AddCombo(basic, "Max file size", SizePresets.Select(x => x == 0 ? "No limit" : x == 10 ? "10 MB (Discord)" : x + " MB").ToArray(), out _);
+            cbMaxSize.SelectedIndexChanged += (s, e) => UpdateInfo();
 
             // Audio
             AddHeader(basic, "Audio");
-            cbDesktopAudio = AddCombo(basic, "Desktop audio", new[] { NoDevice }, out _);
+            cbDesktopAudio = AddCombo(basic, "PC sound", new[] { NoDevice }, out _);
+            cbDesktopAudio.SelectedIndexChanged += (s, e) => UpdateAudioVisibility();
+
+            txtAudioApps = new TextBox() { Width = 300, PlaceholderText = "Spotify.exe, Discord.exe" };
+            Button btnAddApp = new Button() { Text = "Add...", AutoSize = true };
+            btnAddApp.Click += (s, e) => ShowAudioAppMenu(btnAddApp);
+            audioAppsRow = AddRow(basic, "Apps", txtAudioApps, btnAddApp);
             cbMicrophone = AddCombo(basic, "Microphone", new[] { NoDevice }, out _);
             lblAudioNote = AddNote(basic, "Loading devices...");
 
@@ -322,6 +337,15 @@ namespace ShareX
             nudClip.Value = Clamp(settings.ClipSeconds, nudClip);
             cbQuality.SelectedIndex = (int)settings.Quality;
 
+            int sizeIndex = Array.IndexOf(SizePresets, settings.MaxClipSizeMB);
+            if (sizeIndex < 0)
+            {
+                cbMaxSize.Items.Add(settings.MaxClipSizeMB + " MB");
+                sizeIndex = cbMaxSize.Items.Count - 1;
+            }
+            cbMaxSize.SelectedIndex = sizeIndex;
+            txtAudioApps.Text = settings.AudioApps;
+
             int fpsIndex = Array.IndexOf(FPSPresets, settings.FPS);
             if (fpsIndex < 0)
             {
@@ -376,7 +400,11 @@ namespace ShareX
             s.UploadDestination = destinations[Math.Max(0, cbDestination.SelectedIndex)];
             s.UploadCustomUploaderIndex = Math.Max(0, cbCustomUploader.SelectedIndex);
             s.DrawCursor = cbCursor.Checked;
-            s.DesktopAudioDevice = GetDevice(cbDesktopAudio);
+            GetDesktopAudio(out DesktopAudioMode desktopMode, out string desktopDevice);
+            s.DesktopAudio = desktopMode;
+            s.DesktopAudioDevice = desktopDevice;
+            s.AudioApps = string.Join(", ", AppAudioCapture.ParseApps(txtAudioApps.Text));
+            s.MaxClipSizeMB = GetMaxSize();
             s.MicrophoneDevice = GetDevice(cbMicrophone);
             s.MicrophoneSeparateTrack = cbMicSeparate.Checked;
             s.AudioBitrateKbps = (int)nudAudioBitrate.Value;
@@ -412,8 +440,70 @@ namespace ShareX
 
         private int GetFPS()
         {
+            if (cbFPS.SelectedIndex >= 0 && cbFPS.SelectedIndex < FPSPresets.Length) return FPSPresets[cbFPS.SelectedIndex];
             string text = (cbFPS.SelectedItem as string) ?? "60";
             return int.TryParse(text.Split(' ')[0], out int fps) ? fps : 60;
+        }
+
+        private int GetMaxSize()
+        {
+            if (cbMaxSize.SelectedIndex >= 0 && cbMaxSize.SelectedIndex < SizePresets.Length) return SizePresets[cbMaxSize.SelectedIndex];
+            string text = (cbMaxSize.SelectedItem as string) ?? "0";
+            return int.TryParse(text.Split(' ')[0], out int mb) ? mb : 0;
+        }
+
+        // Items: None, the three per-app modes, then DirectShow devices
+        private void GetDesktopAudio(out DesktopAudioMode mode, out string device)
+        {
+            int index = cbDesktopAudio.SelectedIndex;
+            mode = DesktopAudioMode.Device;
+            device = "";
+
+            if (index >= 1 && index <= DesktopModes.Length)
+            {
+                mode = (DesktopAudioMode)index;
+            }
+            else if (index > DesktopModes.Length)
+            {
+                device = cbDesktopAudio.SelectedItem as string ?? "";
+            }
+        }
+
+        private void UpdateAudioVisibility()
+        {
+            if (audioAppsRow == null) return;
+
+            GetDesktopAudio(out DesktopAudioMode mode, out _);
+            SetVisible(audioAppsRow, mode == DesktopAudioMode.AllExcept || mode == DesktopAudioMode.Only);
+        }
+
+        private void ShowAudioAppMenu(Control anchor)
+        {
+            List<string> apps = AppAudioCapture.GetAudioApps();
+
+            foreach (KeyValuePair<string, string> app in ReplayBufferManager.GetOpenApps())
+            {
+                if (!apps.Contains(app.Key, StringComparer.OrdinalIgnoreCase)) apps.Add(app.Key);
+            }
+
+            ContextMenuStrip menu = new ContextMenuStrip();
+
+            foreach (string app in apps)
+            {
+                menu.Items.Add(app, null, (s, e) =>
+                {
+                    List<string> current = AppAudioCapture.ParseApps(txtAudioApps.Text);
+                    if (!current.Contains(app, StringComparer.OrdinalIgnoreCase)) current.Add(app);
+                    txtAudioApps.Text = string.Join(", ", current);
+                });
+            }
+
+            if (menu.Items.Count == 0)
+            {
+                menu.Items.Add("No apps open").Enabled = false;
+            }
+
+            menu.Show(anchor, new Point(0, anchor.Height));
         }
 
         // Accepts "Title (game.exe)" from the list or a typed exe name
@@ -479,8 +569,8 @@ namespace ShareX
             if (IsDisposed) return;
 
             SetDevices(devices);
-            lblAudioNote.Text = devices.Count == 0 ? "No audio devices." :
-                "Desktop audio requires a loopback device (virtual-audio-capturer, Stereo Mix).";
+            lblAudioNote.Text = AppAudioCapture.IsSupported ? "PC sound options work without extra drivers. Devices are listed after them." :
+                "Per-app sound needs Windows 10 version 2004 or newer. Devices like Stereo Mix still work.";
         }
 
         private void RefreshApps()
@@ -669,13 +759,29 @@ namespace ShareX
 
             double mbPerMinute = (bitrate + (double)nudAudioBitrate.Value) * 60 / 8 / 1000;
             double clipMB = mbPerMinute * temp.ClipSeconds / 60;
-            lblQualityInfo.Text = $"{bitrate} kbps, ~{clipMB:0} MB per clip";
+            int maxSize = GetMaxSize();
+            lblQualityInfo.Text = maxSize > 0 && clipMB > maxSize ? $"{bitrate} kbps, ~{clipMB:0} MB, shrunk to {maxSize} MB on save" : $"{bitrate} kbps, ~{clipMB:0} MB per clip";
         }
 
         private void SetDevices(List<string> devices)
         {
             FillDevices(cbDesktopAudio, devices, settings.DesktopAudioDevice);
             FillDevices(cbMicrophone, devices, settings.MicrophoneDevice);
+
+            cbDesktopAudio.BeginUpdate();
+
+            for (int i = 0; i < DesktopModes.Length; i++)
+            {
+                cbDesktopAudio.Items.Insert(1 + i, DesktopModes[i]);
+            }
+
+            if (settings.DesktopAudio != DesktopAudioMode.Device)
+            {
+                cbDesktopAudio.SelectedIndex = (int)settings.DesktopAudio;
+            }
+
+            cbDesktopAudio.EndUpdate();
+            UpdateAudioVisibility();
         }
 
         private static void FillDevices(ComboBox cb, List<string> devices, string selected)

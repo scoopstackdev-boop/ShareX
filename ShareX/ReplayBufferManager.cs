@@ -76,6 +76,7 @@ namespace ShareX
         private static ReplayBufferEncoder currentEncoder = ReplayBufferEncoder.NVIDIA;
         private static string currentFFmpegPath;
         private static Rectangle currentCaptureArea;
+        private static AppAudioCapture appAudio;
 
         private class CaptureTarget
         {
@@ -86,6 +87,7 @@ namespace ShareX
 
             // Screen coordinates of what is recorded
             public Rectangle ScreenArea;
+            public int FPS;
         }
 
         private static ReplayBufferSettings Settings
@@ -190,6 +192,30 @@ namespace ShareX
                 lastError = "";
                 stopping = false;
 
+                StopAppAudio();
+
+                if (s.DesktopAudio != DesktopAudioMode.Device)
+                {
+                    if (AppAudioCapture.IsSupported)
+                    {
+                        appAudio = new AppAudioCapture(s.DesktopAudio, AppAudioCapture.ParseApps(s.AudioApps));
+                        appAudio.Start();
+
+                        AppAudioCapture started = appAudio;
+                        Task.Delay(4000).ContinueWith(_ =>
+                        {
+                            if (started == appAudio && started.Error != null)
+                            {
+                                TaskHelpers.ShowNotificationTip("PC sound capture failed: " + started.Error, "ShareX - Replay buffer", 5000);
+                            }
+                        });
+                    }
+                    else
+                    {
+                        TaskHelpers.ShowNotificationTip("Per-app sound needs Windows 10 version 2004 or newer. Recording without PC sound.", "ShareX - Replay buffer", 5000);
+                    }
+                }
+
                 ProcessStartInfo psi = new ProcessStartInfo()
                 {
                     FileName = ffmpegPath,
@@ -222,6 +248,7 @@ namespace ShareX
                 catch (Exception e)
                 {
                     p.Dispose();
+                    StopAppAudio();
                     TaskHelpers.ShowNotificationTip("ffmpeg failed to start: " + e.Message, "ShareX - Replay buffer", 5000);
                     return false;
                 }
@@ -236,6 +263,8 @@ namespace ShareX
                 catch
                 {
                 }
+
+                SetGpuPriority(p);
 
                 p.BeginErrorReadLine();
                 process = p;
@@ -297,6 +326,8 @@ namespace ShareX
                     p.Dispose();
                 }
             }
+
+            StopAppAudio();
 
             if (Volatile.Read(ref savesInProgress) == 0)
             {
@@ -419,9 +450,9 @@ namespace ShareX
                 }
 
                 // After the segments are released, so the buffer keeps pruning during the re-encode
-                if (outputPath != null && WatermarkManager.ApplyToClips)
+                if (outputPath != null && (WatermarkManager.ApplyToClips || s.MaxClipSizeMB > 0))
                 {
-                    watermarkError = WatermarkManager.Apply(tempPath, captureArea);
+                    watermarkError = WatermarkManager.ProcessVideo(tempPath, captureArea, WatermarkManager.ApplyToClips, s.MaxClipSizeMB);
                 }
 
                 if (outputPath != null)
@@ -451,7 +482,7 @@ namespace ShareX
 
                 if (watermarkError != null)
                 {
-                    TaskHelpers.ShowNotificationTip("Watermark not added: " + watermarkError, "ShareX - Replay buffer", 5000);
+                    TaskHelpers.ShowNotificationTip("Watermark or size limit not applied: " + watermarkError, "ShareX - Replay buffer", 5000);
                 }
 
                 TaskHelpers.PlayNotificationSoundAsync(NotificationSound.ActionCompleted, taskSettings);
@@ -520,14 +551,27 @@ namespace ShareX
             CultureInfo ci = CultureInfo.InvariantCulture;
             StringBuilder args = new StringBuilder("-hide_banner -loglevel error -nostats ");
 
+            // Desktop sound first, then the mic
             List<string> audioDevices = new List<string>();
-            if (!string.IsNullOrWhiteSpace(s.DesktopAudioDevice)) audioDevices.Add(s.DesktopAudioDevice);
-            if (!string.IsNullOrWhiteSpace(s.MicrophoneDevice) && !s.MicrophoneDevice.Equals(s.DesktopAudioDevice, StringComparison.Ordinal)) audioDevices.Add(s.MicrophoneDevice);
+            string desktopDevice = s.DesktopAudio == DesktopAudioMode.Device ? s.DesktopAudioDevice : null;
 
-            foreach (string device in audioDevices)
+            if (appAudio != null)
             {
-                args.Append("-f dshow -rtbufsize 64M -audio_buffer_size 50 ");
-                args.Append($"-i audio={Helpers.EscapeCLIText(device)} ");
+                audioDevices.Add($"-f f32le -ar {AppAudioCapture.SampleRate} -ac {AppAudioCapture.Channels} -i \"{appAudio.PipePath}\" ");
+            }
+            else if (!string.IsNullOrWhiteSpace(desktopDevice))
+            {
+                audioDevices.Add($"-f dshow -rtbufsize 64M -audio_buffer_size 50 -i audio={Helpers.EscapeCLIText(desktopDevice)} ");
+            }
+
+            if (!string.IsNullOrWhiteSpace(s.MicrophoneDevice) && !s.MicrophoneDevice.Equals(desktopDevice, StringComparison.Ordinal))
+            {
+                audioDevices.Add($"-f dshow -rtbufsize 64M -audio_buffer_size 50 -i audio={Helpers.EscapeCLIText(s.MicrophoneDevice)} ");
+            }
+
+            foreach (string audioInput in audioDevices)
+            {
+                args.Append(audioInput);
             }
 
             // Frames stay on the GPU for NVIDIA and AMD, Intel maps them to QSV, CPU and compatibility mode copy them out
@@ -569,7 +613,7 @@ namespace ShareX
             }
 
             ResolveEncoding(s, target.Width, target.Height, out ReplayBufferCodec codec, out int bitrate, out int preset);
-            int fps = GetFPS(s);
+            int fps = target.FPS > 0 ? target.FPS : GetFPS(s);
 
             int gop = fps * SegmentSeconds;
             int maxrate = bitrate * 3 / 2;
@@ -598,6 +642,8 @@ namespace ShareX
             }
 
             args.Append(string.Format(ci, "-b:v {0}k -maxrate {1}k -bufsize {2}k ", bitrate, maxrate, bufsize));
+            // Evenly spaced frames: missed captures are repeated and extras dropped, instead of uneven timestamps that play back as stutter
+            args.Append($"-fps_mode cfr -r {fps} ");
             // A keyframe at every segment start so any run of segments joins cleanly
             args.Append($"-g {gop} -force_key_frames \"expr:gte(t,n_forced*{SegmentSeconds})\" ");
 
@@ -785,9 +831,35 @@ namespace ShareX
             return Program.DefaultTaskSettings.CaptureSettings.FFmpegOptions.FFmpegPath;
         }
 
-        public static int GetFPS(ReplayBufferSettings s)
+        // 0 = match the monitor's refresh rate, halved until it is 120 or less so frames stay evenly spaced
+        public static int GetFPS(ReplayBufferSettings s, Screen screen = null)
         {
-            return Math.Max(10, Math.Min(240, s.FPS));
+            if (s.FPS > 0)
+            {
+                return Math.Max(10, Math.Min(240, s.FPS));
+            }
+
+            int refresh = GetRefreshRate(screen ?? Screen.FromPoint(Cursor.Position));
+
+            while (refresh > 120)
+            {
+                refresh /= 2;
+            }
+
+            return Math.Max(30, refresh);
+        }
+
+        public static int GetRefreshRate(Screen screen)
+        {
+            DEVMODE mode = new DEVMODE();
+            mode.dmSize = (short)Marshal.SizeOf(typeof(DEVMODE));
+
+            if (screen != null && EnumDisplaySettings(screen.DeviceName, ENUM_CURRENT_SETTINGS, ref mode) && mode.dmDisplayFrequency > 1)
+            {
+                return mode.dmDisplayFrequency;
+            }
+
+            return 60;
         }
 
         // Presets are tuned for 1080p60 and scaled by pixel count and frame rate
@@ -852,7 +924,6 @@ namespace ShareX
         {
             target = new CaptureTarget();
             Screen[] screens = GetScreens();
-            int fps = GetFPS(s);
             string cursor = s.DrawCursor ? "1" : "0";
 
             switch (s.CaptureMode)
@@ -881,7 +952,8 @@ namespace ShareX
                     target.ScreenArea = new Rectangle(rect.Left, rect.Top, target.Width, target.Height);
                     target.NeedsWindowCapture = true;
                     // Windows Graphics Capture: only this window, even when covered, follows moves
-                    target.Input = $"gfxcapture=hwnd={hwnd.ToInt64()}:max_framerate={fps}:capture_cursor={cursor}:width=-2:height=-2";
+                    target.FPS = GetFPS(s, Screen.FromHandle(hwnd));
+                    target.Input = $"gfxcapture=hwnd={hwnd.ToInt64()}:max_framerate={target.FPS}:capture_cursor={cursor}:width=-2:height=-2";
                     return null;
                 }
                 case ReplayBufferCaptureMode.Area:
@@ -914,7 +986,8 @@ namespace ShareX
                     target.Width = area.Width;
                     target.Height = area.Height;
                     target.ScreenArea = new Rectangle(area.X + screens[monitorIndex].Bounds.X, area.Y + screens[monitorIndex].Bounds.Y, area.Width, area.Height);
-                    target.Input = $"ddagrab=output_idx={monitorIndex}:draw_mouse={(s.DrawCursor ? "true" : "false")}:framerate={fps}:offset_x={area.X}:offset_y={area.Y}:video_size={area.Width}x{area.Height}";
+                    target.FPS = GetFPS(s, screens[monitorIndex]);
+                    target.Input = $"ddagrab=output_idx={monitorIndex}:draw_mouse={(s.DrawCursor ? "true" : "false")}:framerate={target.FPS}:offset_x={area.X}:offset_y={area.Y}:video_size={area.Width}x{area.Height}";
                     return null;
                 }
                 default:
@@ -930,7 +1003,8 @@ namespace ShareX
                     target.Width = screens[monitorIndex].Bounds.Width;
                     target.Height = screens[monitorIndex].Bounds.Height;
                     target.ScreenArea = screens[monitorIndex].Bounds;
-                    target.Input = $"ddagrab=output_idx={monitorIndex}:draw_mouse={(s.DrawCursor ? "true" : "false")}:framerate={fps}";
+                    target.FPS = GetFPS(s, screens[monitorIndex]);
+                    target.Input = $"ddagrab=output_idx={monitorIndex}:draw_mouse={(s.DrawCursor ? "true" : "false")}:framerate={target.FPS}";
                     return null;
                 }
             }
@@ -1109,6 +1183,13 @@ namespace ShareX
             }
         }
 
+        private static void StopAppAudio()
+        {
+            AppAudioCapture capture = appAudio;
+            appAudio = null;
+            capture?.Dispose();
+        }
+
         private static void Process_Exited(object sender, EventArgs e)
         {
             Process p = sender as Process;
@@ -1123,6 +1204,7 @@ namespace ShareX
                     process = null;
                     pruneTimer?.Dispose();
                     pruneTimer = null;
+                    StopAppAudio();
                 }
             }
 
@@ -1153,6 +1235,74 @@ namespace ShareX
                 StateChanged?.Invoke();
             }
         }
+
+        // A game at 100% GPU starves screen capture of GPU time, which shows up as dropped frames. Same approach as OBS.
+        private static void SetGpuPriority(Process p)
+        {
+            try
+            {
+                int status = D3DKMTSetProcessSchedulingPriorityClass(p.Handle, D3DKMT_SCHEDULINGPRIORITYCLASS_HIGH);
+
+                if (status != 0)
+                {
+                    status = D3DKMTSetProcessSchedulingPriorityClass(p.Handle, D3DKMT_SCHEDULINGPRIORITYCLASS_ABOVE_NORMAL);
+                }
+
+                DebugHelper.WriteLine("Replay buffer GPU priority status: 0x" + status.ToString("X"));
+            }
+            catch (Exception e)
+            {
+                DebugHelper.WriteException(e);
+            }
+        }
+
+        private const int D3DKMT_SCHEDULINGPRIORITYCLASS_ABOVE_NORMAL = 3;
+        private const int D3DKMT_SCHEDULINGPRIORITYCLASS_HIGH = 4;
+
+        [DllImport("gdi32.dll")]
+        private static extern int D3DKMTSetProcessSchedulingPriorityClass(IntPtr hProcess, int priority);
+
+        private const int ENUM_CURRENT_SETTINGS = -1;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct DEVMODE
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmDeviceName;
+            public short dmSpecVersion;
+            public short dmDriverVersion;
+            public short dmSize;
+            public short dmDriverExtra;
+            public int dmFields;
+            public int dmPositionX;
+            public int dmPositionY;
+            public int dmDisplayOrientation;
+            public int dmDisplayFixedOutput;
+            public short dmColor;
+            public short dmDuplex;
+            public short dmYResolution;
+            public short dmTTOption;
+            public short dmCollate;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+            public string dmFormName;
+            public short dmLogPixels;
+            public int dmBitsPerPel;
+            public int dmPelsWidth;
+            public int dmPelsHeight;
+            public int dmDisplayFlags;
+            public int dmDisplayFrequency;
+            public int dmICMMethod;
+            public int dmICMIntent;
+            public int dmMediaType;
+            public int dmDitherType;
+            public int dmReserved1;
+            public int dmReserved2;
+            public int dmPanningWidth;
+            public int dmPanningHeight;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern bool EnumDisplaySettings(string deviceName, int modeNum, ref DEVMODE devMode);
 
         #region Job object, so ffmpeg closes with ShareX even after a crash
 

@@ -11,7 +11,9 @@
   * Saves the last 30 seconds to 1 hour of your screen on a hotkey
   * Capture a monitor, an application, the active window or a region
   * Quality presets, or custom codec (H.264, HEVC, AV1), bitrate and preset
-  * Desktop audio and microphone, mixed or on separate tracks
+  * PC sound and mic, mixed or on separate tracks
+  * Leave out apps you dont want in clips (Spotify, Discord), or only record certain apps
+  * Max file size, clips get shrunk on save to fit
   * Saved clips go through after capture tasks, so uploading works as normal
   * Encodes on the GPU (NVIDIA, AMD or Intel), frames stay on the GPU. Falls back to CPU encoding
   * Clips can upload to any ShareX destination or custom uploader, separate from screenshots

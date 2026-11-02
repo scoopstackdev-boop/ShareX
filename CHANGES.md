@@ -1,7 +1,6 @@
-- watermark wasnt showing on region recordings, fixed
-- video thumbnailer/converter were reading video sizes wrong too, fixed
-- watermark scales better on weird sizes now
-- new placement option: inside the recording, or pinned to a spot on your screen
-- clips only show up in the folder once theyre done saving
+- clips should stutter way less now, frames are evenly spaced and fps can match your monitor (new default)
+- capture gets higher gpu priority so games maxing your gpu dont eat frames
+- max file size option, clips get shrunk on save to fit (10 mb for discord etc)
+- pc sound without virtual-audio-capturer: all sound, all except some apps, or only some apps (windows 10 2004+)
 
 just install over your current sharex, settings stay

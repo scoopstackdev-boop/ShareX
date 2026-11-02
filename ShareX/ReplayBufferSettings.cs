@@ -78,7 +78,8 @@ namespace ShareX
         public Rectangle Area { get; set; } = Rectangle.Empty;
 
         public ReplayBufferQuality Quality { get; set; } = ReplayBufferQuality.Balanced;
-        public int FPS { get; set; } = 60;
+        // 0 = match the monitor refresh rate
+        public int FPS { get; set; } = 0;
 
         // Used when Quality is Custom
         public ReplayBufferCodec Codec { get; set; } = ReplayBufferCodec.H264;
@@ -89,9 +90,17 @@ namespace ShareX
 
         public ReplayBufferEncoder Encoder { get; set; } = ReplayBufferEncoder.Auto;
 
+        // 0 = no limit, otherwise clips are re-encoded on save to fit
+        public int MaxClipSizeMB { get; set; } = 0;
+
         public bool DrawCursor { get; set; } = true;
 
+        // Device = DesktopAudioDevice below, the other modes use per-app capture
+        public DesktopAudioMode DesktopAudio { get; set; } = DesktopAudioMode.Device;
         public string DesktopAudioDevice { get; set; } = "";
+
+        // Exe names for All except and Only, comma separated
+        public string AudioApps { get; set; } = "";
         public string MicrophoneDevice { get; set; } = "";
         public bool MicrophoneSeparateTrack { get; set; } = false;
         public int AudioBitrateKbps { get; set; } = 160;

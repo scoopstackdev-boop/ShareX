@@ -22,6 +22,7 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Windows.Forms;
 
 namespace ShareX
@@ -90,21 +91,34 @@ namespace ShareX
             }
         }
 
-        // Re-encodes the video with the watermark on top and replaces the file. Returns null on success, otherwise the reason.
+        // Watermark only, used for screen recordings
         public static string Apply(string videoPath, Rectangle captureArea = default)
         {
-            VideoWatermarkSettings s = Settings;
+            return ProcessVideo(videoPath, captureArea, true, 0);
+        }
 
-            if (!s.Enabled || string.IsNullOrWhiteSpace(s.Image))
+        // One re-encode for the watermark and the size limit, replacing the file. Returns null on success or when there is nothing to do, otherwise the reason.
+        public static string ProcessVideo(string videoPath, Rectangle captureArea, bool watermark, int maxSizeMB)
+        {
+            VideoWatermarkSettings s = Settings;
+            string image = null;
+
+            if (watermark && s.Enabled && !string.IsNullOrWhiteSpace(s.Image))
             {
-                return null;
+                image = FileHelpers.GetAbsolutePath(s.Image);
+
+                if (!File.Exists(image))
+                {
+                    return "image not found: " + image;
+                }
             }
 
-            string image = FileHelpers.GetAbsolutePath(s.Image);
+            long maxBytes = maxSizeMB > 0 ? (long)maxSizeMB * 1024 * 1024 : 0;
+            bool limitSize = maxBytes > 0 && File.Exists(videoPath) && new FileInfo(videoPath).Length > maxBytes;
 
-            if (!File.Exists(image))
+            if (image == null && !limitSize)
             {
-                return "image not found: " + image;
+                return null;
             }
 
             ReplayBufferSettings replaySettings = Program.Settings.ReplayBufferSettings ?? new ReplayBufferSettings();
@@ -115,92 +129,142 @@ namespace ShareX
                 return "ffmpeg.exe not found: " + ffmpegPath;
             }
 
-            int width = 0;
-            int height = 0;
-            int bitrate = 12000;
+            ProbeResult probe = Probe(ffmpegPath, videoPath);
 
-            try
-            {
-                using (FFmpegCLIManager ffmpeg = new FFmpegCLIManager(ffmpegPath))
-                {
-                    VideoInfo info = ffmpeg.GetVideoInfo(videoPath);
-
-                    if (info != null)
-                    {
-                        if (info.VideoResolution.Width > 0) width = info.VideoResolution.Width;
-                        if (info.VideoResolution.Height > 0) height = info.VideoResolution.Height;
-                        if (info.Bitrate > 0) bitrate = Math.Max(2000, info.Bitrate);
-                    }
-                }
-            }
-            catch (Exception e)
-            {
-                DebugHelper.WriteException(e);
-            }
-
-            if (width <= 0 || height <= 0)
-            {
-                // Guessing the size would place the watermark outside small recordings
-                Size probed = ProbeVideoSize(ffmpegPath, videoPath);
-                width = probed.Width;
-                height = probed.Height;
-            }
-
-            if (width <= 0 || height <= 0)
+            if (probe.Width <= 0 || probe.Height <= 0)
             {
                 return "video size unknown";
             }
 
-            Size imageSize;
+            int width = probe.Width;
+            int height = probe.Height;
+            int videoBitrate = Math.Max(2000, probe.Bitrate);
+            int audioBitrate = 0;
 
-            try
+            if (limitSize)
             {
-                using (Image img = Image.FromFile(image))
+                if (probe.Duration.TotalSeconds <= 0)
                 {
-                    imageSize = img.Size;
+                    return "clip length unknown";
+                }
+
+                // 4% left for the container
+                double totalKbps = maxBytes * 8 * 0.96 / probe.Duration.TotalSeconds / 1000;
+                audioBitrate = totalKbps < 1500 ? 96 : 128;
+                videoBitrate = (int)(totalKbps - audioBitrate * Math.Max(1, probe.AudioTracks));
+
+                if (videoBitrate < 150)
+                {
+                    return $"clip too long for {maxSizeMB} MB";
+                }
+
+                // A low bitrate at full resolution looks worse than a smaller sharp video
+                int maxHeight = videoBitrate < 700 ? 480 : videoBitrate < 1500 ? 720 : videoBitrate < 3500 ? 1080 : int.MaxValue;
+
+                if (height > maxHeight)
+                {
+                    width = Math.Max(2, (int)Math.Round(width * (double)maxHeight / height / 2) * 2);
+                    height = maxHeight;
                 }
             }
-            catch (Exception e)
+
+            string scale = width != probe.Width || height != probe.Height ? $"scale={width}:{height}:flags=lanczos" : "null";
+            string filter;
+            bool animated = false;
+
+            if (image != null)
             {
-                return "image unreadable: " + e.Message;
+                Size imageSize;
+
+                try
+                {
+                    using (Image img = Image.FromFile(image))
+                    {
+                        imageSize = img.Size;
+                    }
+                }
+                catch (Exception e)
+                {
+                    return "image unreadable: " + e.Message;
+                }
+
+                Rectangle? rect = GetVideoWatermarkRect(s, captureArea, new Size(width, height), imageSize);
+
+                if (rect == null)
+                {
+                    // That spot of the screen was not recorded
+                    image = null;
+                }
+                else
+                {
+                    Rectangle r = rect.Value;
+                    string opacity = (Math.Max(5, Math.Min(100, s.Opacity)) / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
+                    animated = Path.GetExtension(image).Equals(".gif", StringComparison.OrdinalIgnoreCase);
+                    string shortest = animated ? ":shortest=1" : "";
+                    filter = $"[1:v]scale={r.Width}:{r.Height},format=rgba,colorchannelmixer=aa={opacity}[wm];[0:v]{scale}[base];[base][wm]overlay={r.X}:{r.Y}{shortest},format={{PIX}}[v]";
+                    return Encode(ffmpegPath, videoPath, image, animated, filter, videoBitrate, audioBitrate, limitSize, maxBytes, replaySettings);
+                }
             }
 
-            Rectangle rect;
+            if (!limitSize)
+            {
+                return null;
+            }
 
+            filter = $"[0:v]{scale},format={{PIX}}[v]";
+            return Encode(ffmpegPath, videoPath, null, false, filter, videoBitrate, audioBitrate, true, maxBytes, replaySettings);
+        }
+
+        // Watermark rectangle in output video pixels, null when a screen-anchored watermark is outside the recording
+        private static Rectangle? GetVideoWatermarkRect(VideoWatermarkSettings s, Rectangle captureArea, Size video, Size imageSize)
+        {
             if (s.Anchor == WatermarkAnchor.Screen && captureArea.Width > 0 && captureArea.Height > 0)
             {
-                // Place it on the screen the capture came from, then shift into the video's coordinates
                 Rectangle screen = Screen.FromRectangle(captureArea).Bounds;
                 Rectangle onScreen = GetWatermarkRect(s, screen.Size, imageSize);
                 onScreen.Offset(screen.Location);
 
-                double scaleX = (double)width / captureArea.Width;
-                double scaleY = (double)height / captureArea.Height;
-                rect = new Rectangle((int)Math.Round((onScreen.X - captureArea.X) * scaleX), (int)Math.Round((onScreen.Y - captureArea.Y) * scaleY),
+                double scaleX = (double)video.Width / captureArea.Width;
+                double scaleY = (double)video.Height / captureArea.Height;
+                Rectangle rect = new Rectangle((int)Math.Round((onScreen.X - captureArea.X) * scaleX), (int)Math.Round((onScreen.Y - captureArea.Y) * scaleY),
                     Math.Max(2, (int)(onScreen.Width * scaleX) / 2 * 2), Math.Max(2, (int)(onScreen.Height * scaleY) / 2 * 2));
 
-                if (!rect.IntersectsWith(new Rectangle(0, 0, width, height)))
+                if (!rect.IntersectsWith(new Rectangle(Point.Empty, video)))
                 {
-                    // That spot of the screen was not recorded, nothing to add
                     return null;
                 }
-            }
-            else
-            {
-                rect = GetWatermarkRect(s, new Size(width, height), imageSize);
-            }
-            string opacity = (Math.Max(5, Math.Min(100, s.Opacity)) / 100.0).ToString("0.00", CultureInfo.InvariantCulture);
-            bool animated = Path.GetExtension(image).Equals(".gif", StringComparison.OrdinalIgnoreCase);
 
-            string tempPath = Path.Combine(Path.GetDirectoryName(videoPath), Path.GetFileNameWithoutExtension(videoPath) + "-watermark" + Path.GetExtension(videoPath));
+                return rect;
+            }
+
+            return GetWatermarkRect(s, video, imageSize);
+        }
+
+        private static string Encode(string ffmpegPath, string videoPath, string image, bool animated, string filter, int videoBitrate, int audioBitrate,
+            bool limitSize, long maxBytes, ReplayBufferSettings replaySettings)
+        {
+            string tempPath = Path.Combine(Path.GetDirectoryName(videoPath), Path.GetFileNameWithoutExtension(videoPath) + "-processed" + Path.GetExtension(videoPath));
             ReplayBufferEncoder encoder = ReplayBufferManager.ResolveEncoder(replaySettings, ffmpegPath);
+            string result = null;
 
-            string result = Run(ffmpegPath, videoPath, image, animated, rect, opacity, bitrate, encoder, tempPath);
-
-            if (result != null && encoder != ReplayBufferEncoder.CPU)
+            // A second try at a lower bitrate if the first one lands over the limit
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                DebugHelper.WriteLine("Watermark with " + ReplayBufferManager.GetEncoderName(encoder) + " failed: " + result);
-                result = Run(ffmpegPath, videoPath, image, animated, rect, opacity, bitrate, ReplayBufferEncoder.CPU, tempPath);
+                int bitrate = attempt == 0 ? videoBitrate : (int)(videoBitrate * 0.85);
+
+                result = Run(ffmpegPath, videoPath, image, animated, filter, bitrate, audioBitrate, limitSize, encoder, tempPath);
+
+                if (result != null && encoder != ReplayBufferEncoder.CPU)
+                {
+                    DebugHelper.WriteLine("Re-encode with " + ReplayBufferManager.GetEncoderName(encoder) + " failed: " + result);
+                    encoder = ReplayBufferEncoder.CPU;
+                    result = Run(ffmpegPath, videoPath, image, animated, filter, bitrate, audioBitrate, limitSize, encoder, tempPath);
+                }
+
+                if (result != null || !limitSize || new FileInfo(tempPath).Length <= maxBytes)
+                {
+                    break;
+                }
             }
 
             if (result != null)
@@ -222,9 +286,20 @@ namespace ShareX
             return null;
         }
 
-        // Fallback reader for the video size, independent of the ffmpeg output format
-        private static Size ProbeVideoSize(string ffmpegPath, string videoPath)
+        private struct ProbeResult
         {
+            public int Width;
+            public int Height;
+            public int Bitrate;
+            public int AudioTracks;
+            public TimeSpan Duration;
+        }
+
+        // Reads the video details straight from ffmpeg's output, independent of its formatting changes
+        private static ProbeResult Probe(string ffmpegPath, string videoPath)
+        {
+            ProbeResult result = new ProbeResult();
+
             try
             {
                 ProcessStartInfo psi = new ProcessStartInfo(ffmpegPath, $"-hide_banner -nostdin -i \"{videoPath}\"")
@@ -239,12 +314,30 @@ namespace ShareX
                     string output = p.StandardError.ReadToEnd();
                     p.WaitForExit(5000);
 
-                    System.Text.RegularExpressions.Match match = System.Text.RegularExpressions.Regex.Match(output, @"Video: .*?, (\d{2,5})x(\d{2,5})");
+                    Match size = Regex.Match(output, @"Video: .*?, (\d{2,5})x(\d{2,5})");
 
-                    if (match.Success)
+                    if (size.Success)
                     {
-                        return new Size(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value));
+                        result.Width = int.Parse(size.Groups[1].Value);
+                        result.Height = int.Parse(size.Groups[2].Value);
                     }
+
+                    Match duration = Regex.Match(output, @"Duration: (\d+):(\d{2}):(\d{2}(?:\.\d+)?)");
+
+                    if (duration.Success)
+                    {
+                        result.Duration = TimeSpan.FromHours(int.Parse(duration.Groups[1].Value)) + TimeSpan.FromMinutes(int.Parse(duration.Groups[2].Value)) +
+                            TimeSpan.FromSeconds(double.Parse(duration.Groups[3].Value, CultureInfo.InvariantCulture));
+                    }
+
+                    Match bitrate = Regex.Match(output, @"bitrate: (\d+) kb/s");
+
+                    if (bitrate.Success)
+                    {
+                        result.Bitrate = int.Parse(bitrate.Groups[1].Value);
+                    }
+
+                    result.AudioTracks = Regex.Matches(output, @"Stream #.*?: Audio:").Count;
                 }
             }
             catch (Exception e)
@@ -252,7 +345,7 @@ namespace ShareX
                 DebugHelper.WriteException(e);
             }
 
-            return Size.Empty;
+            return result;
         }
 
         // Watermark placement in video pixels, shared by the encoder and the settings preview
@@ -296,8 +389,8 @@ namespace ShareX
             return new Rectangle(x, y, w, h);
         }
 
-        private static string Run(string ffmpegPath, string videoPath, string image, bool animated, Rectangle rect, string opacity,
-            int bitrate, ReplayBufferEncoder encoder, string outputPath)
+        private static string Run(string ffmpegPath, string videoPath, string image, bool animated, string filter, int videoBitrate, int audioBitrate,
+            bool limitSize, ReplayBufferEncoder encoder, string outputPath)
         {
             string pixelFormat = encoder == ReplayBufferEncoder.Intel ? "nv12" : "yuv420p";
             string videoEncoder;
@@ -310,13 +403,18 @@ namespace ShareX
                 default: videoEncoder = "-c:v libx264 -preset veryfast"; break;
             }
 
-            // An animated GIF loops for the whole video, a still image is held after its single frame
-            string imageInput = animated ? $"-ignore_loop 0 -i \"{image}\"" : $"-i \"{image}\"";
-            string shortest = animated ? ":shortest=1" : "";
-            string filter = $"[1:v]scale={rect.Width}:{rect.Height},format=rgba,colorchannelmixer=aa={opacity}[wm];[0:v][wm]overlay={rect.X}:{rect.Y}{shortest},format={pixelFormat}[v]";
+            // A size limit needs a hard bitrate cap, otherwise peaks can go 50% over
+            string rate = limitSize ?
+                $"-b:v {videoBitrate}k -maxrate {videoBitrate}k -bufsize {videoBitrate}k" :
+                $"-b:v {videoBitrate}k -maxrate {videoBitrate * 3 / 2}k -bufsize {videoBitrate * 2}k";
+            string audio = limitSize ? $"-c:a aac -b:a {audioBitrate}k" : "-c:a copy";
 
-            string args = $"-hide_banner -loglevel error -nostdin -y -i \"{videoPath}\" {imageInput} -filter_complex \"{filter}\" " +
-                $"-map \"[v]\" -map 0:a? {videoEncoder} -b:v {bitrate}k -maxrate {bitrate * 3 / 2}k -bufsize {bitrate * 2}k -c:a copy -movflags +faststart \"{outputPath}\"";
+            // An animated GIF loops for the whole video, a still image is held after its single frame
+            string imageInput = image == null ? "" : animated ? $"-ignore_loop 0 -i \"{image}\"" : $"-i \"{image}\"";
+            string graph = filter.Replace("{PIX}", pixelFormat);
+
+            string args = $"-hide_banner -loglevel error -nostdin -y -i \"{videoPath}\" {imageInput} -filter_complex \"{graph}\" " +
+                $"-map \"[v]\" -map 0:a? {videoEncoder} {rate} {audio} -movflags +faststart \"{outputPath}\"";
 
             try
             {
