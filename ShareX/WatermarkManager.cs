@@ -296,6 +296,11 @@ namespace ShareX
         }
 
         // Reads the video details straight from ffmpeg's output, independent of its formatting changes
+        public static TimeSpan GetDuration(string ffmpegPath, string videoPath)
+        {
+            return Probe(ffmpegPath, videoPath).Duration;
+        }
+
         private static ProbeResult Probe(string ffmpegPath, string videoPath)
         {
             ProbeResult result = new ProbeResult();

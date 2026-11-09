@@ -1,4 +1,3 @@
-- fixed clips coming out as huge 18 hour files. video and audio clocks didnt line up and the gap got filled with copies of the same frame
-- removed the forced frame rate thing from last update, screen capture already keeps it steady
+- extra safety for the 18 hour clip bug: if a saved clip ever comes out longer than your clip length it gets cut down to the last part automatically
 
 just install over your current sharex, settings stay

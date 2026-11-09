@@ -449,6 +449,16 @@ namespace ShareX
                     Interlocked.Decrement(ref savesInProgress);
                 }
 
+                if (outputPath != null)
+                {
+                    string trimError = TrimToLength(ffmpegPath, tempPath, s.ClipSeconds);
+
+                    if (trimError != null)
+                    {
+                        DebugHelper.WriteLine("Replay clip length check failed: " + trimError);
+                    }
+                }
+
                 // After the segments are released, so the buffer keeps pruning during the re-encode
                 if (outputPath != null && (WatermarkManager.ApplyToClips || s.MaxClipSizeMB > 0))
                 {
@@ -674,6 +684,56 @@ namespace ShareX
             args.Append($"-f segment -segment_time {SegmentSeconds} -segment_format mpegts -reset_timestamps 0 \"{pattern}\"");
 
             return args.ToString();
+        }
+
+        // Safety net: a clip longer than the setting means broken timestamps, keep only its last part
+        private static string TrimToLength(string ffmpegPath, string path, int clipSeconds)
+        {
+            TimeSpan duration = WatermarkManager.GetDuration(ffmpegPath, path);
+            int allowed = clipSeconds + SegmentSeconds * 3;
+
+            if (duration.TotalSeconds <= allowed)
+            {
+                return null;
+            }
+
+            DebugHelper.WriteLine($"Replay clip is {duration} long for a {clipSeconds}s setting, trimming");
+
+            string trimmed = Path.Combine(Path.GetDirectoryName(path), Path.GetFileNameWithoutExtension(path) + "-trim.mp4");
+            string args = $"-hide_banner -loglevel error -nostdin -y -sseof -{clipSeconds + SegmentSeconds} -i \"{path}\" -map 0 -c copy " +
+                "-bsf:v setts=ts=PTS-STARTPTS -bsf:a setts=ts=PTS-STARTPTS -avoid_negative_ts make_zero -movflags +faststart \"{trimmed}\"";
+
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(ffmpegPath, args)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using (Process p = Process.Start(psi))
+                {
+                    string stderr = p.StandardError.ReadToEnd();
+                    p.WaitForExit();
+
+                    if (p.ExitCode != 0 || !File.Exists(trimmed) || new FileInfo(trimmed).Length == 0)
+                    {
+                        FileHelpers.DeleteFile(trimmed);
+                        return string.IsNullOrWhiteSpace(stderr) ? "ffmpeg exit code " + p.ExitCode : stderr.Trim().Lines().LastOrDefault();
+                    }
+                }
+
+                File.Delete(path);
+                File.Move(trimmed, path);
+            }
+            catch (Exception e)
+            {
+                FileHelpers.DeleteFile(trimmed);
+                return e.Message;
+            }
+
+            return null;
         }
 
         public static string GetEncoderName(ReplayBufferEncoder encoder)
