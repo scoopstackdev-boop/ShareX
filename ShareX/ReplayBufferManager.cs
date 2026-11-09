@@ -701,7 +701,7 @@ namespace ShareX
 
             string trimmed = Path.Combine(Path.GetDirectoryName(path), Path.GetFileNameWithoutExtension(path) + "-trim.mp4");
             string args = $"-hide_banner -loglevel error -nostdin -y -sseof -{clipSeconds + SegmentSeconds} -i \"{path}\" -map 0 -c copy " +
-                "-bsf:v setts=ts=PTS-STARTPTS -bsf:a setts=ts=PTS-STARTPTS -avoid_negative_ts make_zero -movflags +faststart \"{trimmed}\"";
+                $"-bsf:v setts=ts=PTS-STARTPTS -bsf:a setts=ts=PTS-STARTPTS -avoid_negative_ts make_zero -movflags +faststart \"{trimmed}\"";
 
             try
             {
