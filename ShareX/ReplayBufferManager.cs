@@ -590,25 +590,38 @@ namespace ShareX
                 input += ",hwmap=derive_device=qsv,format=qsv";
             }
 
+            // Every input starts at 0. Screen capture stamps frames with time since boot while the audio pipe starts at 0,
+            // and without this the gap between them ends up in the clip as hours of length.
+            input += ",setpts=PTS-STARTPTS";
+
             args.Append("-f lavfi ");
             args.Append($"-i {input} ");
 
             int videoInput = audioDevices.Count;
             args.Append($"-map {videoInput}:v ");
 
-            if (audioDevices.Count == 1)
+            if (audioDevices.Count > 0)
             {
-                args.Append("-map 0:a ");
-            }
-            else if (audioDevices.Count == 2)
-            {
-                if (s.MicrophoneSeparateTrack)
+                StringBuilder graph = new StringBuilder();
+
+                for (int i = 0; i < audioDevices.Count; i++)
                 {
-                    args.Append("-map 0:a -map 1:a ");
+                    graph.Append($"[{i}:a]asetpts=PTS-STARTPTS[a{i}];");
+                }
+
+                if (audioDevices.Count == 2 && !s.MicrophoneSeparateTrack)
+                {
+                    graph.Append("[a0][a1]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[aout]");
+                    args.Append($"-filter_complex \"{graph}\" -map \"[aout]\" ");
                 }
                 else
                 {
-                    args.Append("-filter_complex \"[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=0:normalize=0[aout]\" -map \"[aout]\" ");
+                    args.Append($"-filter_complex \"{graph.ToString().TrimEnd(';')}\" ");
+
+                    for (int i = 0; i < audioDevices.Count; i++)
+                    {
+                        args.Append($"-map \"[a{i}]\" ");
+                    }
                 }
             }
 
@@ -642,8 +655,8 @@ namespace ShareX
             }
 
             args.Append(string.Format(ci, "-b:v {0}k -maxrate {1}k -bufsize {2}k ", bitrate, maxrate, bufsize));
-            // Evenly spaced frames: missed captures are repeated and extras dropped, instead of uneven timestamps that play back as stutter
-            args.Append($"-fps_mode cfr -r {fps} ");
+            // Screen capture already delivers a steady frame rate, passthrough keeps ffmpeg from padding gaps with repeated frames
+            args.Append("-fps_mode passthrough ");
             // A keyframe at every segment start so any run of segments joins cleanly
             args.Append($"-g {gop} -force_key_frames \"expr:gte(t,n_forced*{SegmentSeconds})\" ");
 
